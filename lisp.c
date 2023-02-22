@@ -255,6 +255,26 @@ const char* ParseList(list_t* list, const char* expr)
 	    pTokEnd = ParseList((list_t*)cell, pTokEnd);
 	}
 	break;
+        case '"':
+        {
+          ++pTokEnd;
+	    while(*pTokEnd != '\0' && 
+		  *pTokEnd != '\n' &&
+                  *pTokEnd != '"')
+		++pTokEnd;
+
+            char* strEnd = pTokEnd;
+            char lastChar = *pTokEnd;
+
+            char* strStart = pTokStart+1;
+	    int len = strEnd - strStart;
+	    char* sym = malloc(len + 1);
+	    memcpy(sym, strStart, len);
+	    sym[len] = 0;
+	    PUSH_BACK(list, CELL(SYM, sym));
+            if (lastChar == '"') pTokEnd++;
+        }
+        break;
 	// start a new list
 	case '(':
 	{
