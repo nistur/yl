@@ -601,6 +601,7 @@ void lisp(const char* expr)
     SET("set", CELL( FUNC, set));
     SET("lambda", CELL( FUNC, lambda));
     SET("read-file-text", CELL( FUNC, lisp_read_file_text));
+    SET("eval", CELL( FUNC, Eval));
 
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
