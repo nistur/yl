@@ -559,6 +559,13 @@ cell_base_t* less(cell_base_t* car, cell_base_t* cdr, env_t env)
     return v1 < v2 ? T : F;
 }
 
+cell_base_t* not(cell_base_t* car, cell_base_t* cdr, env_t env)
+{
+    cell_base_t* v = Eval(car, cdr, env);
+
+    return (v == F || v == NIL) ? T : F;
+}
+
 cell_base_t* lisp_if(cell_base_t* car, cell_base_t* cdr, env_t env)
 {
     cell_base_t* test = Eval(car, cdr, env);
@@ -589,6 +596,7 @@ void lisp(const char* expr)
     SET("cdr", CELL( FUNC, cdr));
     SET("-", CELL( FUNC, sub));
     SET("<", CELL( FUNC, less));
+    SET("not", CELL( FUNC, not));
     SET("if", CELL( FUNC, lisp_if));
     SET("set", CELL( FUNC, set));
     SET("lambda", CELL( FUNC, lambda));
