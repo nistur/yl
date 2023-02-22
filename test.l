@@ -1,1 +1,1 @@
-(println (read-file-text "test.txt"))
+(eval '(println (read-file-text "test.txt")))
