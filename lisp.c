@@ -176,8 +176,9 @@ char* read_file_text(const char* fname)
   fseek(fp, 0L, SEEK_END);
   long size = ftell(fp);
   fseek(fp, 0L, SEEK_SET);
-  char* buffer=malloc(size);
+  char* buffer=malloc(size + 1);
   fread(buffer, 1, size, fp);
+  buffer[size] = '\0';
   fclose(fp);
 
   return buffer;
