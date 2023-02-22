@@ -4,7 +4,7 @@ CC=gcc
 
 STAGE0_OBJS=main.o lisp.o
 
-CFLAGS=-g
+CFLAGS=-g -Wall -Wextra
 LDFLAGS=$(CFLAGS)
 
 run: stage0

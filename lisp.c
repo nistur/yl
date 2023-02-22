@@ -30,6 +30,8 @@
 //----------------------------------------------------------------------------//
 // Macros                                                                     //
 //----------------------------------------------------------------------------//
+// Unused variables
+#define UNUSED(x) (void)(x)
 // Allow current struct to be reference counted
 #define REFCOUNT ref_t _ref;
 // Release memory
@@ -47,6 +49,8 @@
 #define GET(name) Get(env, hash(name))
 // Replace a named value with a new one
 #define REPLACE(name, val) Replace(env, hash(name), val);
+// Create a new environment
+#define ENV() _env()
 // Create a new cell of a given type with specific value
 #define CELL(t, v) _cell(t, (void*)v)
 // Create a new list
@@ -169,6 +173,14 @@ int hash(const char* str)
 // Code starts here!                                                          //
 //----------------------------------------------------------------------------//
 
+// Create a new environment
+env_t _env()
+{
+  env_t env = malloc(sizeof(struct _env_t));
+  memset(env, 0, sizeof(struct _env_t));
+  return env;
+}
+
 // Create a new cell
 cell_base_t* _cell(cell_type t, void* val)
 {
@@ -176,14 +188,17 @@ cell_base_t* _cell(cell_type t, void* val)
     if(t == LIST)
     {
 	cell = malloc(sizeof(list_t));
+	memset(cell, 0, sizeof(list_t));
     }
     else if(t == FUNL)
     {
 	cell = malloc(sizeof(fn_t));
+	memset(cell, 0, sizeof(fn_t));
     }
     else
     {
 	cell = malloc(sizeof(cell_t));
+	memset(cell, 0, sizeof(cell_t));
 	((cell_t*)cell)->sym = (sym_t)val;
     }
     cell->t = t;
@@ -243,7 +258,7 @@ const char* ParseList(list_t* list, const char* expr)
 	// start a new list
 	case '(':
 	{
-	    cell_base_t* cell = CELL(LIST, 0);
+	    list_t* cell = LIST();
 	    PUSH_BACK(list,cell);
 	    pTokEnd = ParseList((list_t*)cell, pTokEnd);
 	}
@@ -265,7 +280,6 @@ const char* ParseList(list_t* list, const char* expr)
 		  *pTokEnd != '\n' && *pTokEnd != '\t' &&
 		  *pTokEnd != '('  && *pTokEnd !=  ')' )
 		++pTokEnd;
-
 	    int len = pTokEnd - pTokStart;
 	    char* sym = malloc(len + 1);
 	    memcpy(sym, pTokStart, len);
@@ -320,7 +334,7 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 	    // Evaluate a Lisp function
 	    else if( val->t == FUNL )
 	    {
-		env_t scope = malloc(8);
+	      env_t scope = ENV();
 		memset(scope, 0, 8);
 		scope->_parent = env;
 		cell_base_t* name = ((fn_t*)val)->params->car;
@@ -361,6 +375,13 @@ void Free(cell_base_t* cell)
 	}
     }
     break;
+    case FUNL:
+      break;
+    case VAL:
+    case BOOL:
+    case NUM:
+    case FUNC:
+      break; // these don't have any additional memory allocated
     }
     free(cell);
 }
@@ -406,6 +427,7 @@ cell_base_t* println(cell_base_t* car, cell_base_t* cdr, env_t env)
 // arithemetic summation of all parameters
 cell_base_t* plus(cell_base_t* car, cell_base_t* cdr, env_t env)
 {
+  UNUSED(cdr);
     int val = 0;
     cell_base_t* cell = car;
     while( cell )
@@ -426,6 +448,7 @@ cell_base_t* plus(cell_base_t* car, cell_base_t* cdr, env_t env)
 
 cell_base_t* sub(cell_base_t* car, cell_base_t* cdr, env_t env)
 {
+  UNUSED(cdr);
     int val = 0;
     int first = 1;
     cell_base_t* cell = car;
@@ -471,11 +494,13 @@ cell_base_t* car( cell_base_t* car, cell_base_t* cdr, env_t env)
 
 cell_base_t* cdr( cell_base_t* car, cell_base_t* cdr, env_t env)
 {
+  UNUSED(car); UNUSED(env);
     return cdr;
 }
 // define a lisp function
 cell_base_t* lambda(cell_base_t* car, cell_base_t* cdr, env_t env)
 {
+  UNUSED(env);
     {
 	fn_t* val = FUNL();
 	if(car->t == LIST)
@@ -512,7 +537,7 @@ cell_base_t* lisp_if(cell_base_t* car, cell_base_t* cdr, env_t env)
 // main entry point
 void lisp(const char* expr)
 {
-    env_t env = malloc(8);
+  env_t env = ENV();
     SET("println", CELL(FUNC, println));
     SET("+", CELL( FUNC, plus));
     SET("car", CELL( FUNC, car));
