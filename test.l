@@ -1,1 +1,1 @@
-(println "Hello World")
+(println (read-file-text "test.txt"))

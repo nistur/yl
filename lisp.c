@@ -169,6 +169,20 @@ int hash(const char* str)
     return h;
 }
 
+// Reading file
+char* read_file_text(const char* fname)
+{
+  FILE* fp = fopen(fname, "r");
+  fseek(fp, 0L, SEEK_END);
+  long size = ftell(fp);
+  fseek(fp, 0L, SEEK_SET);
+  char* buffer=malloc(size);
+  fread(buffer, 1, size, fp);
+  fclose(fp);
+
+  return buffer;
+}
+
 //----------------------------------------------------------------------------//
 // Code starts here!                                                          //
 //----------------------------------------------------------------------------//
@@ -554,6 +568,16 @@ cell_base_t* lisp_if(cell_base_t* car, cell_base_t* cdr, env_t env)
     return Eval( cdr->next, cdr->next->next, env);
 }
 
+cell_base_t* lisp_read_file_text(cell_base_t* car, cell_base_t* cdr, env_t env)
+{
+    cell_base_t* nameval = Eval(car, cdr, env);
+    char* namestr = ((cell_t*)nameval)->sym;
+
+    char* contentstr = read_file_text(namestr);
+
+    return CELL(SYM, contentstr);
+}
+
 // main entry point
 void lisp(const char* expr)
 {
@@ -567,6 +591,7 @@ void lisp(const char* expr)
     SET("if", CELL( FUNC, lisp_if));
     SET("set", CELL( FUNC, set));
     SET("lambda", CELL( FUNC, lambda));
+    SET("read-file-text", CELL( FUNC, lisp_read_file_text));
 
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
