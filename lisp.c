@@ -589,6 +589,19 @@ cell_base_t* lisp_read_file_text(cell_base_t* car, cell_base_t* cdr, env_t env)
     return CELL(SYM, contentstr);
 }
 
+cell_base_t* lisp_while(cell_base_t* car, cell_base_t* cdr, env_t env)
+{
+    cell_base_t* test = Eval(car, cdr, env);
+    cell_base_t* ret = NULL;
+    
+    while( test && test != NIL && test != F && ((cell_t*)test)->val != 0)
+    {
+        ret = Eval(cdr, cdr->next, env);
+	test = Eval(car, cdr, env);
+    }
+    return ret;
+}
+
 // main entry point
 void lisp(const char* expr)
 {
@@ -605,6 +618,7 @@ void lisp(const char* expr)
     SET("lambda", CELL( FUNC, lambda));
     SET("read-file-text", CELL( FUNC, lisp_read_file_text));
     SET("eval", CELL( FUNC, Eval));
+    SET("while", CELL( FUNC, lisp_while));
 
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
