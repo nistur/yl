@@ -1,1 +1,1 @@
-(eval '(println (read-file-text "test.txt")))
+(println (car (cons 13 37)))
