@@ -358,6 +358,7 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 	car = res;
     }
 
+    static int d = 0;
     // If we find a symbol, look it up and replace with the relevant value
     if(car->t == SYM)
     {
@@ -367,11 +368,22 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 	    // Call the C function directly
 	    if( val->t == FUNC )
 	    {
-		return ((cell_t*)val)->func(cdr, cdr->next, env);
+	      for(int i = 0; i < d; ++i) printf(" ");
+	      printf("[%s\n", ((cell_t*)car)->sym);
+	      ++d;
+	        cell_base_t* cell = ((cell_t*)val)->func(cdr, cdr->next, env);
+		--d;
+	
+		for(int i = 0; i < d; ++i) printf(" ");
+		printf("]\n", ((cell_t*)car)->sym);	
+		return cell;
 	    }
 	    // Evaluate a Lisp function
 	    else if( val->t == FUNL )
 	    {
+	      for(int i = 0; i < d; ++i) printf(" ");
+	      printf("(%s\n", ((cell_t*)car)->sym);
+	      ++d;
 	      env_t scope = ENV();
 		memset(scope, 0, 8);
 		scope->_parent = env;
@@ -386,6 +398,9 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 		val = Eval(((cell_base_t*)((fn_t*)val)->body), ((fn_t*)val)->body->car->next, scope);
 		
 		free(scope);
+		--d;
+		for(int i = 0; i < d; ++i) printf(" ");
+		printf(")\n", ((cell_t*)car)->sym);	
 	    }
 	    return val;
 	}
