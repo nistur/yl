@@ -254,7 +254,7 @@ cell_base_t* Pop(list_t* list)
 const char* ParseList(list_t* list, const char* expr)
 {
     const char* pTokStart = expr;
-    const char* pTokEnd = expr + 1;
+    const char* pTokEnd = pTokStart + 1;
     while(1)
     {
 	switch(*pTokStart)
@@ -289,7 +289,7 @@ const char* ParseList(list_t* list, const char* expr)
 	    PUSH_BACK(list, CELL(SYM, sym));
             if (lastChar == '"') pTokEnd++;
         }
-        break;
+	break;
 	// start a new list
 	case '(':
 	{
@@ -308,6 +308,9 @@ const char* ParseList(list_t* list, const char* expr)
 		return pTokEnd; // if we're quoting, just break on the next space
 	    }
 	    break;
+	case '\n':
+	case '\t':
+	  break;
 	    // everything else, we convert to a symbol
 	default:
 	{
