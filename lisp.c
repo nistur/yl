@@ -525,6 +525,15 @@ cell_base_t* set(cell_base_t* car, cell_base_t* cdr, env_t env)
     return NIL;
 }
 
+cell_base_t* cons(cell_base_t* car, cell_base_t* cdr, env_t env)
+{
+    list_t* lst = LIST();
+    lst->car = Eval(car, cdr, env);
+    lst->cdr = Eval(cdr, cdr->next, env);
+    return &(lst->_base);
+}
+  
+
 cell_base_t* car( cell_base_t* car, cell_base_t* cdr, env_t env)
 {
     return Eval(car, cdr, env);
@@ -608,6 +617,7 @@ void lisp(const char* expr)
   env_t env = ENV();
     SET("println", CELL(FUNC, println));
     SET("+", CELL( FUNC, plus));
+    SET("cons", CELL( FUNC, cons));
     SET("car", CELL( FUNC, car));
     SET("cdr", CELL( FUNC, cdr));
     SET("-", CELL( FUNC, sub));
