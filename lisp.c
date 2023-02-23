@@ -541,8 +541,12 @@ cell_base_t* car( cell_base_t* car, cell_base_t* cdr, env_t env)
 
 cell_base_t* cdr( cell_base_t* car, cell_base_t* cdr, env_t env)
 {
-  UNUSED(car); UNUSED(env);
-    return cdr;
+    cell_base_t* cell = Eval(car, cdr, env);
+    if( cell->t == LIST )
+    {
+        return ((list_t*)cell)->cdr;
+    }
+    return cell->next;
 }
 // define a lisp function
 cell_base_t* lambda(cell_base_t* car, cell_base_t* cdr, env_t env)
