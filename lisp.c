@@ -62,16 +62,16 @@
 // Push a value onto a list
 #define PUSH_BACK(list, val)						\
     {									\
-	if( list->car == NULL ) { list->car = val; }			\
+	if( list->car == NULL ) { list->car = (cell_base_t*)val; }	\
 	else if( list->cdr == NULL )					\
 	{								\
-	    list->cdr = val; list->car->next = val;			\
+	    list->cdr = (cell_base_t*)val; list->car->next = (cell_base_t*)val;	\
 	}								\
 	else								\
 	{								\
 	    cell_base_t* pCell = list->cdr;				\
 	    while( pCell->next != NULL ) pCell = pCell->next;		\
-	    pCell->next = val;						\
+	    pCell->next = (cell_base_t*)val;			        \
 	}								\
     }
 // Pop a value off the list
@@ -278,10 +278,10 @@ const char* ParseList(list_t* list, const char* expr)
                   *pTokEnd != '"')
 		++pTokEnd;
 
-            char* strEnd = pTokEnd;
-            char lastChar = *pTokEnd;
+            const char* strEnd = pTokEnd;
+            const char lastChar = *pTokEnd;
 
-            char* strStart = pTokStart+1;
+            const char* strStart = pTokStart+1;
 	    int len = strEnd - strStart;
 	    char* sym = malloc(len + 1);
 	    memcpy(sym, strStart, len);
@@ -368,21 +368,21 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 	    // Call the C function directly
 	    if( val->t == FUNC )
 	    {
-	      for(int i = 0; i < d; ++i) printf(" ");
-	      printf("[%s\n", ((cell_t*)car)->sym);
+//	      for(int i = 0; i < d; ++i) printf(" ");
+//	      printf("[%s\n", ((cell_t*)car)->sym);
 	      ++d;
 	        cell_base_t* cell = ((cell_t*)val)->func(cdr, cdr->next, env);
 		--d;
 	
-		for(int i = 0; i < d; ++i) printf(" ");
-		printf("]\n", ((cell_t*)car)->sym);	
+//		for(int i = 0; i < d; ++i) printf(" ");
+//		printf("]\n");	
 		return cell;
 	    }
 	    // Evaluate a Lisp function
 	    else if( val->t == FUNL )
 	    {
-	      for(int i = 0; i < d; ++i) printf(" ");
-	      printf("(%s\n", ((cell_t*)car)->sym);
+//	      for(int i = 0; i < d; ++i) printf(" ");
+//	      printf("(%s\n", ((cell_t*)car)->sym);
 	      ++d;
 	      env_t scope = ENV();
 		memset(scope, 0, 8);
@@ -399,8 +399,8 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 		
 		free(scope);
 		--d;
-		for(int i = 0; i < d; ++i) printf(" ");
-		printf(")\n", ((cell_t*)car)->sym);	
+//		for(int i = 0; i < d; ++i) printf(" ");
+//		printf(")\n");	
 	    }
 	    return val;
 	}
@@ -544,7 +544,7 @@ cell_base_t* cons(cell_base_t* car, cell_base_t* cdr, env_t env)
 {
     list_t* lst = LIST();
     lst->car = Eval(car, cdr, env);
-    lst->cdr = Eval(cdr, cdr->next, env);
+    lst->cdr = cdr ? Eval(cdr, cdr->next, env) : NIL;
     return &(lst->_base);
 }
   
@@ -561,8 +561,9 @@ cell_base_t* cdr( cell_base_t* car, cell_base_t* cdr, env_t env)
     {
         return ((list_t*)cell)->cdr;
     }
-    return cell->next;
+    return cell->next ? cell->next : NIL;
 }
+
 // define a lisp function
 cell_base_t* lambda(cell_base_t* car, cell_base_t* cdr, env_t env)
 {
