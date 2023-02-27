@@ -352,13 +352,13 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
     }
 
     // evaluate until we have no lists left
-    while(car->t == LIST)
+    if(car->t == LIST)
     {
 	cell_base_t* res = Eval(((list_t*)car)->car, ((list_t*)car)->cdr, env);
-	car = res;
+//	car = res;
+	return res;
     }
 
-    static int d = 0;
     // If we find a symbol, look it up and replace with the relevant value
     if(car->t == SYM)
     {
@@ -368,23 +368,13 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 	    // Call the C function directly
 	    if( val->t == FUNC )
 	    {
-//	      for(int i = 0; i < d; ++i) printf(" ");
-//	      printf("[%s\n", ((cell_t*)car)->sym);
-	      ++d;
 	        cell_base_t* cell = ((cell_t*)val)->func(cdr, cdr->next, env);
-		--d;
-	
-//		for(int i = 0; i < d; ++i) printf(" ");
-//		printf("]\n");	
 		return cell;
 	    }
 	    // Evaluate a Lisp function
 	    else if( val->t == FUNL )
 	    {
-//	      for(int i = 0; i < d; ++i) printf(" ");
-//	      printf("(%s\n", ((cell_t*)car)->sym);
-	      ++d;
-	      env_t scope = ENV();
+		env_t scope = ENV();
 		memset(scope, 0, 8);
 		scope->_parent = env;
 		cell_base_t* name = ((fn_t*)val)->params->car;
@@ -398,9 +388,6 @@ cell_base_t* Eval(cell_base_t* car, cell_base_t* cdr, env_t env)
 		val = Eval(((cell_base_t*)((fn_t*)val)->body), ((fn_t*)val)->body->car->next, scope);
 		
 		free(scope);
-		--d;
-//		for(int i = 0; i < d; ++i) printf(" ");
-//		printf(")\n");	
 	    }
 	    return val;
 	}
@@ -464,14 +451,64 @@ cell_base_t* Replace(env_t env, int hash, cell_base_t* val)
 //----------------------------------------------------------------------------//
 // Lisp standard functions                                                    //
 //----------------------------------------------------------------------------//
+cell_base_t* str(cell_base_t* car, cell_base_t* cdr, env_t env)
+{
+    cell_base_t* val = Eval(car, cdr, env);
+    char* buff = NULL;
+    switch(val->t)
+    {
+    case SYM:
+	return val;
+    case VAL:
+    {
+	buff = sb_add(buff, 128);;
+	sprintf(buff, "%d", ((cell_t*)val)->val);
+	cell_base_t* res = CELL(SYM, buff);
+	sb_free(buff);
+	return res;
+    }
+    case LIST:
+    {
+	buff = sb_add(buff, 2);
+	cell_base_t* car = ((list_t*)val)->car;
+	sprintf(buff, "(");
+	int p = 1;
+	while(car)
+	{
+	    cell_t* strcar = (cell_t*)str(car, car->next, env);
+	    int l = strlen(strcar->sym);
+	    char* pbuff = sb_add(buff, l+1);
+	    sprintf(pbuff-1, "%s ", strcar->sym);
+	    p += l+1;
+//	    RELEASE(strcar);
+	    car = car->next;
+	}
+
+	char* pbuff = sb_add(buff, p+2);
+	pbuff[-2] = ')';
+	pbuff[-1] = '\0';
+
+	cell_base_t* res = CELL(SYM, buff);
+	sb_free(buff);
+	return res;
+    }
+    case BOOL:
+    case NUM:
+    case FUNL:
+    case FUNC:
+    case QUOT:
+	break;
+    };
+    return NIL;
+}
+
 // Print list with newline
 cell_base_t* println(cell_base_t* car, cell_base_t* cdr, env_t env)
 {
     while( car )
     {
-	cell_base_t* res = Eval(car, cdr, env);
-	if(res->t == SYM) printf("%s\n", ((cell_t*)res)->sym);
-	if(res->t == VAL) printf("%d\n", ((cell_t*)res)->val);
+	cell_base_t* res = str(car, cdr, env);
+	printf("%s\n", ((cell_t*)res)->sym);
 	car = car->next;
     }
     return NIL;
@@ -545,7 +582,7 @@ cell_base_t* cons(cell_base_t* car, cell_base_t* cdr, env_t env)
     list_t* lst = LIST();
     lst->car = Eval(car, cdr, env);
     lst->cdr = cdr ? Eval(cdr, cdr->next, env) : NIL;
-    return &(lst->_base);
+    return (cell_base_t*)lst;
 }
   
 
