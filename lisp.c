@@ -249,12 +249,45 @@ cell_base_t* Pop(list_t* list)
     return c;
 }
 
+const char* ESCAPE_CHARS = "ntr0";
+const char* ESCAPE_CHARS_CONVERTED = "\n\t\r\0";
+static char escape_char(char c) {
+    const char* loc = strchr(ESCAPE_CHARS, c);
+    char esc = 'X'; // default value for debugging
+    if (loc != NULL) {
+        size_t idx = loc - ESCAPE_CHARS;
+        esc = ESCAPE_CHARS_CONVERTED[idx];
+    }
+    return esc;
+}
+
+static void str_copy_escaped(char* dest, const char* src, int len) {
+    int escapeFlag = 0;
+    int destIndex = 0;
+    for (int i = 0; i < len; ++i) {
+        if (escapeFlag == 0) {
+            if (src[i] == '\\') {
+                escapeFlag = 1;
+            } else {
+                dest[destIndex] = src[i];
+                ++destIndex;
+            }
+        } else {
+            dest[destIndex] = escape_char(src[i]);
+            destIndex++;
+            escapeFlag = 0;
+        }
+    }
+}
+
 // Parse an expression into a list, returns a pointer to the end
 // of the expression
+const char* STRING_TERMINALS = "\n\"\0";
 const char* ParseList(list_t* list, const char* expr)
 {
     const char* pTokStart = expr;
     const char* pTokEnd = pTokStart + 1;
+
     while(1)
     {
 	switch(*pTokStart)
@@ -272,19 +305,30 @@ const char* ParseList(list_t* list, const char* expr)
 	break;
         case '"':
         {
+          int escapeCount = 0;
           ++pTokEnd;
-	    while(*pTokEnd != '\0' && 
-		  *pTokEnd != '\n' &&
-                  *pTokEnd != '"')
-		++pTokEnd;
+          while(strchr(STRING_TERMINALS, *pTokEnd) == NULL) {
+              if (*pTokEnd == '\\') {
+                    ++escapeCount;
+                    //we wanna skip the char after \ (it could be \ itself)
+                    ++pTokEnd;
+                    if (strchr(STRING_TERMINALS, *pTokEnd) != NULL) {
+                        // but not if it's the end of string
+                        break;
+                    }
+                    ++pTokEnd;
+                } else {
+                    ++pTokEnd;
+                }
+            }
 
             const char* strEnd = pTokEnd;
             const char lastChar = *pTokEnd;
 
             const char* strStart = pTokStart+1;
 	    int len = strEnd - strStart;
-	    char* sym = malloc(len + 1);
-	    memcpy(sym, strStart, len);
+	    char* sym = malloc(len + 1 - escapeCount);
+            str_copy_escaped(sym, strStart, len);
 	    sym[len] = 0;
 	    PUSH_BACK(list, CELL(SYM, sym));
             if (lastChar == '"') pTokEnd++;
