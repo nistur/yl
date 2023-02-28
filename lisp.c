@@ -588,7 +588,10 @@ cell_base_t* cons(cell_base_t* car, cell_base_t* cdr, env_t env)
 
 cell_base_t* car( cell_base_t* car, cell_base_t* cdr, env_t env)
 {
-    return Eval(car, cdr, env);
+    cell_base_t* cell = Eval(car, cdr, env);
+    if(cell->t == LIST)
+	return ((list_t*)cell)->car;
+    return cell;
 }
 
 cell_base_t* cdr( cell_base_t* car, cell_base_t* cdr, env_t env)
