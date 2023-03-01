@@ -728,7 +728,7 @@ void lisp(const char* expr)
     SET("<", CELL( FUNC, less));
     SET("not", CELL( FUNC, not));
     SET("if", CELL( FUNC, lisp_if));
-    SET("set", CELL( FUNC, set));
+    SET("set!", CELL( FUNC, set));
     SET("lambda", CELL( FUNC, lambda));
     SET("read-file-text", CELL( FUNC, lisp_read_file_text));
     SET("eval", CELL( FUNC, Eval));
