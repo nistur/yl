@@ -40,7 +40,7 @@
 #define RETAIN(_val) { ((ref_t*)_val)->_refCount += 1; }
 // Decrease reference count - Free memory if no references left
 #define RELEASE(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE(_val); }}
-#define __SET(XX,val,e) {sb_push(e->keys, XX); sb_push(e->vals, val); RETAIN(val);}
+#define __SET(XX,val,e) {sb_push(e->keys, XX); sb_push(e->vals, (cell_base_t*)val); RETAIN(val);}
 // Set a value to a given name-hash (prefer SET)
 #define _SET(XX,val)  __SET(XX,val,env)
 // Set a value to a given name
@@ -359,11 +359,12 @@ const char* ParseList(list_t* list, const char* expr)
 	    list_t* cell = LIST();
 	    PUSH_BACK(list,cell);
 	    pTokEnd = ParseList((list_t*)cell, pTokEnd);
+	    if(list->_base.t != QUOT)
+		LISTIFY(cell);
 	}
 	break;
 	// end the current list
 	case ')':
-	    LISTIFY(list);
 	    return pTokEnd;
 	    // do nothing, unless the previous cell was quoted
 	case ' ':
@@ -437,6 +438,12 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
     if(cell->t == LIST)
     {
 	cell_base_t* fn = Eval(((list_t*)cell)->car, env);
+	if(CAR(cell)->t == QUOT)
+	{
+	    // I don't quite know why quotes are wrapped
+	    // in lists right now
+	    return fn;
+	}
 	switch(fn->t)
 	{
 	case FUNC:
@@ -786,9 +793,10 @@ void lisp(const char* expr)
     SET("t", T);
     SET("f", F);
     SET("nil", NIL);
-    
+
     ast_t ast = Parse(expr);
     cell_base_t* cell = (cell_base_t*)ast;
+    SET("ast", ast);
     while( NOT_NIL(cell) )
     {
 	Eval( cell, env );
