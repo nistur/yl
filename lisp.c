@@ -58,7 +58,7 @@
 // Create a new Lisp function
 #define FUNL() (fn_t*)CELL(FUNL,0)
 // Quote the following cell
-#define QUOTE() (list_t*)CELL(QUOT,0)
+#define QUOTE() (cell_t*)CELL(QUOT,0)
 // Push a value onto a list
 #define PUSH_BACK(list, val)						\
     {									\
@@ -156,7 +156,7 @@ typedef cell_base_t* (*func)(cell_base_t*, struct _env_t* env);
 typedef struct _cell_t
 {
     cell_base_t _base;
-    union { sym_t sym; int val; func func; };
+    union { sym_t sym; int val; func func; cell_base_t* inner; };
 } cell_t;
 
 // Environment/scope, a simple hashmap lookup, with ability to have children
@@ -302,120 +302,141 @@ static void str_copy_escaped(char* dest, const char* src, int len) {
 // Parse an expression into a list, returns a pointer to the end
 // of the expression
 const char* STRING_TERMINALS = "\n\"\0";
-const char* ParseList(list_t* list, const char* expr)
+const char* ParseList(list_t* list, const char* expr);
+const char* ParseToken(cell_base_t** cell, const char* expr)
 {
     const char* pTokStart = expr;
     const char* pTokEnd = pTokStart + 1;
 
+    switch(*pTokStart)
+    {
+    case '\0':
+	// early out - the end
+	*cell = NIL;
+	return pTokStart;
+    case '\'':
+	*cell = (cell_base_t*)QUOTE();
+	return ParseToken(&((cell_t*)*cell)->inner, pTokEnd);
+    case '"':
+    {
+	int escapeCount = 0;
+	++pTokEnd;
+	while(strchr(STRING_TERMINALS, *pTokEnd) == NULL) {
+	    if (*pTokEnd == '\\') {
+		++escapeCount;
+		//we wanna skip the char after \ (it could be \ itself)
+		++pTokEnd;
+		if (strchr(STRING_TERMINALS, *pTokEnd) != NULL) {
+		    // but not if it's the end of string
+		    break;
+		}
+		++pTokEnd;
+	    } else {
+		++pTokEnd;
+	    }
+	}
+	
+	const char* strEnd = pTokEnd;
+	const char lastChar = *pTokEnd;
+	
+	const char* strStart = pTokStart+1;
+	int len = strEnd - strStart;
+	char* sym = malloc(len + 1 - escapeCount);
+	str_copy_escaped(sym, strStart, len);
+	sym[len] = 0;
+        *cell = CELL(STRING, sym);
+	if (lastChar == '"') pTokEnd++;
+	return pTokEnd;
+    }
+    case '(':
+	*cell = (cell_base_t*)LIST();
+	return ParseList(((list_t*)*cell), pTokEnd);
+    case ')':
+	*cell = NIL;
+	return pTokEnd;
+    }
+
+    if( *pTokStart >= '0' && *pTokStart <= '9' )
+    {
+	while((*pTokEnd >= '0' && *pTokEnd <= '9') || *pTokEnd == '.')
+	    ++pTokEnd;
+	int len = pTokEnd - pTokStart;
+	char* sym = malloc(len + 1);
+	memcpy(sym, pTokStart, len);
+	sym[len] = 0;
+	*cell = CELL(VAL, atoi(sym));
+	free(sym);
+	return pTokEnd;
+    }
+
+    // everything else, we convert to a symbol
+    
+    while(*pTokEnd != '\0' && *pTokEnd !=  ' ' &&
+	  *pTokEnd != '\n' && *pTokEnd != '\t' &&
+	  *pTokEnd != '('  && *pTokEnd !=  ')' )
+	++pTokEnd;
+    int len = pTokEnd - pTokStart;
+    char* sym = malloc(len + 1);
+    memcpy(sym, pTokStart, len);
+    sym[len] = 0;
+    *cell = CELL(SYM, sym);
+    return pTokEnd;
+}
+
+const char* ParseList(list_t* list, const char* expr)
+{
+    const char* pTokStart = expr;
+
+#define SKIP_WHITESPACE(__x)						\
+    while(*__x == ' ' || *__x == '\t' || *__x == '\n' ||		\
+	  *__x == '\r' )						\
+	++__x;
+
+    SKIP_WHITESPACE(pTokStart);
+
+    const char* pTokEnd = pTokStart + 1;
+
     while(1)
     {
-	switch(*pTokStart)
-	{
-	    // early out - the end
-	case '\0':
-	    return pTokStart;
-	    // quote the following cell/list
-	case '\'':
-	{
-	    cell_base_t* cell = CELL(QUOT, 0);
-	    PUSH_BACK(list,cell);
-	    pTokEnd = ParseList((list_t*)cell, pTokEnd);
-	}
-	break;
-        case '"':
-        {
-          int escapeCount = 0;
-          ++pTokEnd;
-          while(strchr(STRING_TERMINALS, *pTokEnd) == NULL) {
-              if (*pTokEnd == '\\') {
-                    ++escapeCount;
-                    //we wanna skip the char after \ (it could be \ itself)
-                    ++pTokEnd;
-                    if (strchr(STRING_TERMINALS, *pTokEnd) != NULL) {
-                        // but not if it's the end of string
-                        break;
-                    }
-                    ++pTokEnd;
-                } else {
-                    ++pTokEnd;
-                }
-            }
+	cell_base_t* cell = NIL;
+	pTokEnd = ParseToken(&cell, pTokStart);
 
-            const char* strEnd = pTokEnd;
-            const char lastChar = *pTokEnd;
+	PUSH_BACK(list, cell);
 
-            const char* strStart = pTokStart+1;
-	    int len = strEnd - strStart;
-	    char* sym = malloc(len + 1 - escapeCount);
-            str_copy_escaped(sym, strStart, len);
-	    sym[len] = 0;
-	    PUSH_BACK(list, CELL(STRING, sym));
-            if (lastChar == '"') pTokEnd++;
-        }
-	break;
-	// start a new list
-	case '(':
-	{
-	    list_t* cell = LIST();
-	    PUSH_BACK(list,cell);
-	    pTokEnd = ParseList((list_t*)cell, pTokEnd);
-	    if(list->_base.t != QUOT)
-		LISTIFY(cell);
-	}
-	break;
-	// end the current list
-	case ')':
-	    return pTokEnd;
-	    // do nothing, unless the previous cell was quoted
-	case ' ':
-	    if(list->_base.t == QUOT)
-	    {
-		return pTokEnd; // if we're quoting, just break on the next space
-	    }
-	    break;
-	case '\n':
-	case '\t':
-	  break;
-	case '0':
-	case '1':
-	case '2':
-	case '3':
-	case '4':
-	case '5':
-	case '6':
-	case '7':
-	case '8':
-	case '9':
-	    while((*pTokEnd >= '0' && *pTokEnd <= '9') || *pTokEnd == '.')
-		++pTokEnd;
-	    int len = pTokEnd - pTokStart;
-	    char* sym = malloc(len + 1);
-	    memcpy(sym, pTokStart, len);
-	    sym[len] = 0;
-	    PUSH_BACK(list, CELL(VAL, atoi(sym)));
-	    free(sym);
-	    break;
-	    // everything else, we convert to a symbol
-	default:
-	{
-	    while(*pTokEnd != '\0' && *pTokEnd !=  ' ' &&
-		  *pTokEnd != '\n' && *pTokEnd != '\t' &&
-		  *pTokEnd != '('  && *pTokEnd !=  ')' )
-		++pTokEnd;
-	    int len = pTokEnd - pTokStart;
-	    char* sym = malloc(len + 1);
-	    memcpy(sym, pTokStart, len);
-	    sym[len] = 0;
-	    PUSH_BACK(list, CELL(SYM, sym));
-	}
-	break;
-	}
-
+	SKIP_WHITESPACE(pTokEnd);
+	
 	// next token
 	pTokStart = pTokEnd;
 	pTokEnd = pTokStart+1;
+	if( *pTokEnd == '\0' || *pTokStart == '\0' || cell == NIL ) break;
     }
-    return pTokStart;
+    return pTokEnd;
+}
+
+void Consify(cell_base_t* cell)
+{
+    if(cell == NIL) return;
+    if(cell->t == LIST)
+    {
+	cell_base_t* car = CAR(cell);
+	cell_base_t* cdr = CDR(cell);
+	
+	Consify(car);
+	Consify(cdr);
+	
+	if(car->t == LIST && CAR(car) == NIL && CDR(car) == NIL)
+	    ((list_t*)cell)->car = NIL;
+	
+	if(cdr->t == LIST && CAR(cdr) == NIL && CDR(cdr) == NIL)
+	    ((list_t*)cell)->cdr = NIL;
+	else if(cdr->t == LIST && CAR(cdr) != NIL && CDR(cdr) == NIL)
+	    ((list_t*)cell)->cdr = CAR(cdr);
+    }
+    else if(cell->t == QUOT)
+    {
+	Consify(((cell_t*)cell)->inner);
+    }
+   
 }
 
 // Parse an expression into a syntax tree.
@@ -423,6 +444,9 @@ ast_t Parse(const char* expr)
 {
     ast_t ast = LIST();
     ParseList(ast, expr);
+
+    Consify((cell_base_t*)ast);
+    
     return ast;
 }
 
@@ -432,7 +456,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
     // if the value is quoted, don't evaluate it
     if(cell->t == QUOT)
     {
-	return ((list_t*)cell)->car;
+	return (cell_base_t*)((cell_t*)cell)->val;
     }
 
     if(cell->t == LIST)
@@ -500,7 +524,6 @@ void Free(cell_base_t* cell)
 	free(((cell_t*)cell)->sym);
 	break;
     case LIST:
-    case QUOT:
     {
 	while(NOT_NIL(cell))
 	{
@@ -509,6 +532,9 @@ void Free(cell_base_t* cell)
 	}
     }
     break;
+    case QUOT:
+	RELEASE(((cell_t*)((cell_t*)cell)->val));
+	break;
     case FUNL:
       break;
     case VAL:
@@ -767,6 +793,57 @@ cell_base_t* lisp_while(cell_base_t* cell, env_t env)
     return ret;
 }
 
+void print_cell(cell_base_t* cell)
+{
+    static int depth = 0;
+
+    for(int i = 0; i < depth; ++i) printf(" ");
+
+    if(!NOT_NIL(cell))
+    {
+	printf("NIL\n");
+	return;
+    }
+    
+    switch(cell->t)
+    {
+    case SYM:
+	printf("S:%s\n", ((cell_t*)cell)->sym);
+	break;
+    case LIST:
+	printf("L:\n");
+	++depth;
+	print_cell(CAR(cell));
+	print_cell(CDR(cell));
+	--depth;
+	break;
+    case VAL:
+	printf("V:%d\n", ((cell_t*)cell)->val);
+	break;
+    case BOOL:
+	printf("B:\n");
+	break;
+    case NUM:
+	printf("N:\n");
+	break;
+    case FUNL:
+	printf("F:\n");
+	break;
+    case FUNC:
+	printf("F:%p\n", ((cell_t*)cell)->func);
+	break;
+    case QUOT:
+	printf("Q:\n");
+	++depth;
+	print_cell((cell_base_t*)((cell_t*)cell)->val);
+	--depth;
+	break;
+    case STRING:
+	printf("S:\"%s\"\n", ((cell_t*)cell)->sym);
+	break;
+    }
+}
+
 // main entry point
 void lisp(const char* expr)
 {
@@ -797,6 +874,9 @@ void lisp(const char* expr)
     ast_t ast = Parse(expr);
     cell_base_t* cell = (cell_base_t*)ast;
     SET("ast", ast);
+
+    print_cell((cell_base_t*)ast);
+
     while( NOT_NIL(cell) )
     {
 	Eval( cell, env );
