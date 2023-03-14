@@ -63,29 +63,12 @@
 #define PUSH_BACK(list, val)						\
     {									\
 	list_t* l = list;						\
-	while(NOT_NIL(l->car))						\
+	while(NOT_NIL(CAR(l)))						\
 	{								\
-	    if(l->cdr == NIL) l->cdr = (cell_base_t*)LIST();		\
-	    l = (list_t*)l->cdr;					\
+	    if(CDR(l) == NIL) l->cdr = (cell_base_t*)LIST();		\
+	    l = (list_t*)CDR(l);					\
 	}								\
 	l->car = (cell_base_t*)val;					\
-    }
-
-// TODO Release the end list
-#define LISTIFY(list)					\
-    {							\
-	cell_base_t* l = (cell_base_t*)list;		\
-	cell_base_t* cdr = CDR(l);			\
-	while(NOT_NIL(cdr) && NOT_NIL(CDR(cdr)))	\
-	{						\
-	    l = cdr;					\
-	    cdr = CDR(l);				\
-	}						\
-	if(NOT_NIL(cdr) && cdr->t == LIST)		\
-	{						\
-	    ((list_t*)l)->cdr = CAR(cdr);		\
-	    RETAIN(CDR(l));				\
-	}						\
     }
 
 #define NOT_NIL(x) ((x != NULL) && (((cell_base_t*)x) != NIL))
@@ -398,16 +381,15 @@ const char* ParseList(list_t* list, const char* expr)
 
     while(1)
     {
+	SKIP_WHITESPACE(pTokStart);
 	cell_base_t* cell = NIL;
 	pTokEnd = ParseToken(&cell, pTokStart);
-
+	
 	PUSH_BACK(list, cell);
 
-	SKIP_WHITESPACE(pTokEnd);
 	
 	// next token
 	pTokStart = pTokEnd;
-	pTokEnd = pTokStart+1;
 	if( *pTokEnd == '\0' || *pTokStart == '\0' || cell == NIL ) break;
     }
     return pTokEnd;
@@ -474,7 +456,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 	    return ((cell_t*)fn)->func(((list_t*)cell)->cdr, env);
 	case FUNL:
 	{
-	    cell_base_t* params = CADR(cell);
+	    cell_base_t* params = CDR(cell);
 
 	    if(params->t == LIST)
 	    {
@@ -486,7 +468,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 		while(NOT_NIL(name) && NOT_NIL(CAR(name)) && NOT_NIL(val) && NOT_NIL(CAR(val)))
 		{
 		    __SET(hash(((cell_t*)CAR(name))->sym),
-			  Eval(CAR(val), env),
+			  Eval(val, env),
 			  scope);
 		    name = CDR(name);
 		    val = CDR(val);
@@ -802,7 +784,6 @@ void print_cell(cell_base_t* cell)
     if(!NOT_NIL(cell))
     {
 	printf("NIL\n");
-	return;
     }
     
     switch(cell->t)
@@ -844,10 +825,19 @@ void print_cell(cell_base_t* cell)
     }
 }
 
+cell_base_t* print_cell_lisp(cell_base_t* cell, env_t env)
+{
+    if(cell->t == SYM)
+	cell = GET(((cell_t*)cell)->sym);
+    print_cell(cell);
+    return NIL;
+}
+
 // main entry point
 void lisp(const char* expr)
 {
   env_t env = ENV();
+    SET("print-cell", CELL(FUNC, print_cell_lisp));
     SET("println", CELL(FUNC, println));
     SET("+", CELL( FUNC, plus));
     SET("cons", CELL( FUNC, cons));
@@ -875,7 +865,7 @@ void lisp(const char* expr)
     cell_base_t* cell = (cell_base_t*)ast;
     SET("ast", ast);
 
-    print_cell((cell_base_t*)ast);
+//    print_cell((cell_base_t*)ast);
 
     while( NOT_NIL(cell) )
     {
