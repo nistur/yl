@@ -821,8 +821,7 @@ void print_cell(cell_base_t* cell)
 
 cell_base_t* print_cell_lisp(cell_base_t* cell, env_t env)
 {
-    if(cell->t == SYM)
-	cell = GET(((cell_t*)cell)->sym);
+    cell = Eval(cell, env);
     print_cell(cell);
     return NIL;
 }

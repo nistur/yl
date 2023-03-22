@@ -1,5 +1,4 @@
-(println "Hello world")
-
+(print-cell ast)
 
 (set! 'cddr (lambda (x) (cdr (cdr x))))
 (set! 'test-list-1 (cons 3 (cons 4 (cons 5 nil))))
