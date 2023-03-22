@@ -35,12 +35,12 @@
 // Allow current struct to be reference counted
 #define REFCOUNT ref_t _ref;
 // Release memory
-#define FREE(v) Free((cell_base_t*)v)
+#define FREE(v) Free(v)
 // Increase reference count - hold reference to a struct
 #define RETAIN(_val) { ((ref_t*)_val)->_refCount += 1; }
 // Decrease reference count - Free memory if no references left
 #define RELEASE(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE(_val); }}
-#define __SET(XX,val,e) {sb_push(e->keys, XX); sb_push(e->vals, (cell_base_t*)val); RETAIN(val);}
+#define __SET(XX,val,e) {sb_push(e->keys, XX); sb_push(e->vals, val); RETAIN(val);}
 // Set a value to a given name-hash (prefer SET)
 #define _SET(XX,val)  __SET(XX,val,env)
 // Set a value to a given name
@@ -54,27 +54,26 @@
 // Create a new cell of a given type with specific value
 #define CELL(t, v) _cell(t, (void*)v)
 // Create a new list
-#define LIST() (list_t*)CELL(LIST,0)
+#define LIST() CELL(LIST,0)
 // Create a new Lisp function
 #define FUNL() (fn_t*)CELL(FUNL,0)
 // Quote the following cell
-#define QUOTE() (cell_t*)CELL(QUOT,0)
+#define QUOTE() CELL(QUOT,0)
 // Push a value onto a list
-#define PUSH_BACK(list, val)						\
-    {									\
-	list_t* l = list;						\
-	while(NOT_NIL(CAR(l)))						\
-	{								\
-	    if(CDR(l) == NIL) l->pair.cdr = (cell_base_t*)LIST();	\
-	    l = (list_t*)CDR(l);					\
-	}								\
-	l->pair.car = (cell_base_t*)val;				\
-    }
+#define PUSH_BACK(l, val)						\
+  {									\
+      while(NOT_NIL(CAR(l)))						\
+      {									\
+	if(CDR(l) == NIL) l->pair.cdr = LIST();				\
+	l = CDR(l);							\
+      }									\
+      l->pair.car = val;						\
+  }
 
-#define NOT_NIL(x) ((x != NULL) && (((cell_base_t*)x) != NIL))
+#define NOT_NIL(x) ((x != NULL) && ((x) != NIL))
 
-#define CAR(x)   ((NOT_NIL(x) && ((cell_base_t*)x)->t == LIST) ? (((list_t*)x)->pair.car) : NIL)
-#define CDR(x)   ((NOT_NIL(x) && ((cell_base_t*)x)->t == LIST) ? (((list_t*)x)->pair.cdr) : NIL)
+#define CAR(x)   ((NOT_NIL(x) && x->t == LIST) ? (x->pair.car) : NIL)
+#define CDR(x)   ((NOT_NIL(x) && x->t == LIST) ? (x->pair.cdr) : NIL)
 #define CADR(x ) (CAR(CDR(x)))
 #define CADDR(x) (CAR(CDR(CDR(x))))
 #define CDDR(x) (CDR(CDR(x)))
@@ -134,14 +133,6 @@ typedef struct _cell_base_t
 
 void Free(cell_base_t* cell);
 
-/*// Basic list type, contains references to the head, and rest of the list
-typedef struct _list_t
-{
-    cell_base_t _base;
-    cell_base_t* car;
-    cell_base_t* cdr;
-    } list_t, *ast_t;*/
-
 // Lisp function, params used for renaming parameters, body contains executablt
 typedef struct _fn_t
 {
@@ -150,13 +141,6 @@ typedef struct _fn_t
     list_t*      body;
 } fn_t;
 
-
-// Basic cell type. Contains support for string, integer and C function types
-/*typedef struct _cell_t
-{
-    cell_base_t _base;
-    union { sym_t sym; int val; func func; cell_base_t* inner; };
-} cell_t;*/
 
 // Environment/scope, a simple hashmap lookup, with ability to have children
 typedef struct _env_t
@@ -220,16 +204,16 @@ env_t _env()
 cell_base_t* _cell(cell_type t, void* val)
 {
     cell_base_t* cell;
-    if(t == LIST)
+    if(t == LIST || t == FUNL)
     {
 	cell = malloc(sizeof(list_t));
-	cell->pair.car = NIL;
+	cell->pair.car = NOT_NIL(val) ? val : NIL;
 	cell->pair.cdr = NIL;
     }
-    else if(t == FUNL)
+    else if(t == QUOT)
     {
-	cell = malloc(sizeof(fn_t));
-	memset(cell, 0, sizeof(fn_t));
+      cell = malloc(sizeof(cell_t));
+      cell->inner = NOT_NIL(val) ? val : NIL;
     }
     else if(t == VAL)
     {
@@ -314,8 +298,8 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
 	*cell = NIL;
 	return pTokStart;
     case '\'':
-	*cell = (cell_base_t*)QUOTE();
-	return ParseToken(&((cell_t*)*cell)->inner, pTokEnd);
+	*cell = QUOTE();
+	return ParseToken(&(*cell)->inner, pTokEnd);
     case '"':
     {
 	int escapeCount = 0;
@@ -348,8 +332,8 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
 	return pTokEnd;
     }
     case '(':
-	*cell = (cell_base_t*)LIST();
-	return ParseList(((list_t*)*cell), pTokEnd);
+	*cell = LIST();
+	return ParseList(*cell, pTokEnd);
     case ')':
 	*cell = NIL;
 	return pTokEnd;
@@ -454,18 +438,12 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
     // if the value is quoted, don't evaluate it
     if(cell->t == QUOT)
     {
-	return (cell_base_t*)((cell_t*)cell)->val;
+      return cell->inner;
     }
 
     if(cell->t == LIST)
     {
 	cell_base_t* fn = Eval(CAR(cell), env);
-	if(CAR(cell)->t == QUOT)
-	{
-	    // I don't quite know why quotes are wrapped
-	    // in lists right now
-	    return fn;
-	}
 	switch(fn->t)
 	{
 	case FUNC:
@@ -476,7 +454,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 
 	    if(params->t == LIST)
 	    {
-	        cell_base_t* name = (cell_base_t*)((fn_t*)fn)->params;
+	        cell_base_t* name = fn->pair.car;
 		cell_base_t* val = params;
 
 		env_t scope = ENV();
@@ -490,7 +468,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 		    val = CDR(val);
 		}
 
-		cell_base_t* res = Eval((cell_base_t*)((fn_t*)fn)->body, scope);
+		cell_base_t* res = Eval(fn->pair.cdr, scope);
 		// TODO: Make scope reference counted too, so
 		// we can return lambdas
 		free(scope);
@@ -501,7 +479,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 	default:
 	    break;
 	}
-	return NIL;
+	return fn;
     }
 
     // If we find a symbol, look it up and replace with the relevant value
@@ -531,7 +509,7 @@ void Free(cell_base_t* cell)
     }
     break;
     case QUOT:
-	RELEASE(((cell_t*)((cell_t*)cell)->val));
+	RELEASE(cell->inner);
 	break;
     case FUNL:
       break;
@@ -541,6 +519,7 @@ void Free(cell_base_t* cell)
     case FUNC:
       break; // these don't have any additional memory allocated
     }
+    if(cell == NIL || cell == T || cell == F) return; // don't free these
     free(cell);
 }
 
@@ -571,7 +550,7 @@ cell_base_t* Replace(env_t env, int hash, cell_base_t* val)
 //----------------------------------------------------------------------------//
 cell_base_t* str(cell_base_t* cell, env_t env)
 {
-    cell_base_t* val = Eval(CAR(cell), env);
+    cell_base_t* val = Eval(cell, env);
     char* buff = NULL;
     switch(val->t)
     {
@@ -580,10 +559,9 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 	return val;
     case VAL:
     {
-	buff = sb_add(buff, 128);;
-	sprintf(buff, "%d", ((cell_t*)val)->val);
+      buff = malloc(128);
+	sprintf(buff, "%d", val->val);
 	cell_base_t* res = CELL(STRING, buff);
-	sb_free(buff);
 	return res;
     }
     case LIST:
@@ -593,7 +571,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 	int p = 1;
 	while(NOT_NIL(val) && NOT_NIL(CAR(val)))
 	{
-	    cell_t* strcar = (cell_t*)str(CAR(val), env);
+	    cell_t* strcar = str(CAR(val), env);
 	    int l = strlen(strcar->sym);
 	    char* pbuff = sb_add(buff, l+1);
 	    sprintf(pbuff-1, "%s ", strcar->sym);
@@ -604,7 +582,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 
 	if (NOT_NIL(val))
 	{
-	    cell_t* strcar = (cell_t*)str(val, env);
+	    cell_t* strcar = str(val, env);
 	    int l = strlen(strcar->sym);
 	    char* pbuff = sb_add(buff, l+3);
 	    sprintf(pbuff-1, ". %s ", strcar->sym);
@@ -615,7 +593,9 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 	pbuff[-2] = ')';
 	pbuff[-1] = '\0';
 
-	cell_base_t* res = CELL(STRING, buff);
+	char* strbuf = malloc(p+2);
+	memcpy(strbuf, buff, p+2);
+	cell_base_t* res = CELL(STRING, strbuf);
 	sb_free(buff);
 	return res;
     }
@@ -633,7 +613,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 cell_base_t* println(cell_base_t* cell, env_t env)
 {
     cell_base_t* res = str(cell, env);
-    printf("%s\n", ((cell_t*)res)->sym);
+    printf("%s\n", res->sym);
     return NIL;
 }
 
@@ -722,13 +702,13 @@ cell_base_t* lambda(cell_base_t* cell, env_t env)
 {
   UNUSED(env);
     {
-	fn_t* val = FUNL();
+	cell_t* val = FUNL();
 	if(cell->t == LIST)
 	{
 	    list_t* list = (list_t*)cell;
-	    val->params = CAR(list);
-	    val->body = CDR(list);
-	    return &val->_base;
+	    val->pair.car = CAR(list);
+	    val->pair.cdr = CDR(list);
+	    return val;
 	}
     }
     return NIL;
@@ -800,7 +780,7 @@ void print_cell(cell_base_t* cell)
     switch(cell->t)
     {
     case SYM:
-	printf("S:%s\n", ((cell_t*)cell)->sym);
+	printf("S:%s\n", cell->sym);
 	break;
     case LIST:
 	printf("L:\n");
@@ -810,7 +790,7 @@ void print_cell(cell_base_t* cell)
 	--depth;
 	break;
     case VAL:
-	printf("V:%d\n", ((cell_t*)cell)->val);
+	printf("V:%d\n", cell->val);
 	break;
     case BOOL:
 	printf("B:\n");
@@ -822,16 +802,16 @@ void print_cell(cell_base_t* cell)
 	printf("F:\n");
 	break;
     case FUNC:
-	printf("F:%p\n", ((cell_t*)cell)->func);
+	printf("F:%p\n", cell->func);
 	break;
     case QUOT:
 	printf("Q:\n");
 	++depth;
-	print_cell((cell_base_t*)((cell_t*)cell)->val);
+	print_cell(cell->inner);
 	--depth;
 	break;
     case STRING:
-	printf("S:\"%s\"\n", ((cell_t*)cell)->sym);
+	printf("S:\"%s\"\n", cell->sym);
 	break;
     }
 }

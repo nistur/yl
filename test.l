@@ -1,4 +1,4 @@
-(println (cons 1 2))
+(println "Hello world")
 
 
 (set! 'cddr (lambda (x) (cdr (cdr x))))
