@@ -65,16 +65,16 @@
 	list_t* l = list;						\
 	while(NOT_NIL(CAR(l)))						\
 	{								\
-	    if(CDR(l) == NIL) l->cdr = (cell_base_t*)LIST();		\
+	    if(CDR(l) == NIL) l->pair.cdr = (cell_base_t*)LIST();	\
 	    l = (list_t*)CDR(l);					\
 	}								\
-	l->car = (cell_base_t*)val;					\
+	l->pair.car = (cell_base_t*)val;				\
     }
 
 #define NOT_NIL(x) ((x != NULL) && (((cell_base_t*)x) != NIL))
 
-#define CAR(x)   ((NOT_NIL(x) && ((cell_base_t*)x)->t == LIST) ? (((list_t*)x)->car) : NIL)
-#define CDR(x)   ((NOT_NIL(x) && ((cell_base_t*)x)->t == LIST) ? (((list_t*)x)->cdr) : NIL)
+#define CAR(x)   ((NOT_NIL(x) && ((cell_base_t*)x)->t == LIST) ? (((list_t*)x)->pair.car) : NIL)
+#define CDR(x)   ((NOT_NIL(x) && ((cell_base_t*)x)->t == LIST) ? (((list_t*)x)->pair.cdr) : NIL)
 #define CADR(x ) (CAR(CDR(x)))
 #define CADDR(x) (CAR(CDR(CDR(x))))
 #define CDDR(x) (CDR(CDR(x)))
@@ -105,23 +105,42 @@ typedef enum
     STRING,// string value
 } cell_type;
 
+// C function pointer
+struct _env_t;
+struct cell_base_t;
+typedef struct _cell_base_t* (*func)(struct _cell_base_t*, struct _env_t* env);
+
+typedef struct _pair_t
+{
+    struct _cell_base_t* car;
+    struct _cell_base_t* cdr;
+} pair_t;
+
 // base type for all cells - handles type lookup
 typedef struct _cell_base_t
 {
     REFCOUNT;
     cell_type t;
-} cell_base_t;
+    union
+    {
+	sym_t sym;
+	int val;
+	func func;
+	struct _cell_base_t* inner;
+	pair_t pair;
+    };
+} cell_base_t, cell_t, list_t, *ast_t;
 
 
 void Free(cell_base_t* cell);
 
-// Basic list type, contains references to the head, and rest of the list
+/*// Basic list type, contains references to the head, and rest of the list
 typedef struct _list_t
 {
     cell_base_t _base;
     cell_base_t* car;
     cell_base_t* cdr;
-} list_t, *ast_t;
+    } list_t, *ast_t;*/
 
 // Lisp function, params used for renaming parameters, body contains executablt
 typedef struct _fn_t
@@ -131,16 +150,13 @@ typedef struct _fn_t
     list_t*      body;
 } fn_t;
 
-// C function pointer
-struct _env_t;
-typedef cell_base_t* (*func)(cell_base_t*, struct _env_t* env);
 
 // Basic cell type. Contains support for string, integer and C function types
-typedef struct _cell_t
+/*typedef struct _cell_t
 {
     cell_base_t _base;
     union { sym_t sym; int val; func func; cell_base_t* inner; };
-} cell_t;
+} cell_t;*/
 
 // Environment/scope, a simple hashmap lookup, with ability to have children
 typedef struct _env_t
@@ -207,8 +223,8 @@ cell_base_t* _cell(cell_type t, void* val)
     if(t == LIST)
     {
 	cell = malloc(sizeof(list_t));
-	((list_t*)cell)->car = NIL;
-	((list_t*)cell)->cdr = NIL;
+	cell->pair.car = NIL;
+	cell->pair.cdr = NIL;
     }
     else if(t == FUNL)
     {
@@ -407,12 +423,12 @@ void Consify(cell_base_t* cell)
 	Consify(cdr);
 	
 	if(car->t == LIST && CAR(car) == NIL && CDR(car) == NIL)
-	    ((list_t*)cell)->car = NIL;
+	    ((list_t*)cell)->pair.car = NIL;
 	
 	if(cdr->t == LIST && CAR(cdr) == NIL && CDR(cdr) == NIL)
-	    ((list_t*)cell)->cdr = NIL;
+	    ((list_t*)cell)->pair.cdr = NIL;
 	else if(cdr->t == LIST && CAR(cdr) != NIL && CDR(cdr) == NIL)
-	    ((list_t*)cell)->cdr = CAR(cdr);
+	    ((list_t*)cell)->pair.cdr = CAR(cdr);
     }
     else if(cell->t == QUOT)
     {
@@ -427,7 +443,7 @@ ast_t Parse(const char* expr)
     ast_t ast = LIST();
     ParseList(ast, expr);
 
-    Consify((cell_base_t*)ast);
+//    Consify((cell_base_t*)ast);
     
     return ast;
 }
@@ -443,7 +459,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 
     if(cell->t == LIST)
     {
-	cell_base_t* fn = Eval(((list_t*)cell)->car, env);
+	cell_base_t* fn = Eval(CAR(cell), env);
 	if(CAR(cell)->t == QUOT)
 	{
 	    // I don't quite know why quotes are wrapped
@@ -453,7 +469,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 	switch(fn->t)
 	{
 	case FUNC:
-	    return ((cell_t*)fn)->func(((list_t*)cell)->cdr, env);
+	    return ((cell_t*)fn)->func(CDR(cell), env);
 	case FUNL:
 	{
 	    cell_base_t* params = CDR(cell);
@@ -555,7 +571,7 @@ cell_base_t* Replace(env_t env, int hash, cell_base_t* val)
 //----------------------------------------------------------------------------//
 cell_base_t* str(cell_base_t* cell, env_t env)
 {
-    cell_base_t* val = Eval(cell, env);
+    cell_base_t* val = Eval(CAR(cell), env);
     char* buff = NULL;
     switch(val->t)
     {
@@ -683,8 +699,8 @@ cell_base_t* set(cell_base_t* cell, env_t env)
 cell_base_t* cons(cell_base_t* cell, env_t env)
 {
     list_t* lst = LIST();
-    lst->car = Eval(CAR(cell), env);
-    lst->cdr = Eval(CDR(cell), env);
+    lst->pair.car = Eval(CAR(cell), env);
+    lst->pair.cdr = Eval(CDR(cell), env);
     return (cell_base_t*)lst;
 }
   
@@ -692,19 +708,13 @@ cell_base_t* cons(cell_base_t* cell, env_t env)
 cell_base_t* car( cell_base_t* cell, env_t env)
 {
     cell = Eval(cell, env);
-    if(cell->t == LIST)
-	return ((list_t*)cell)->car;
-    return NIL;
+    return CAR(cell);
 }
 
 cell_base_t* cdr( cell_base_t* cell, env_t env)
 {
     cell = Eval(cell, env);
-    if( cell->t == LIST )
-    {
-        return (cell_base_t*)((list_t*)cell)->cdr;
-    }
-    return NIL;
+    return CDR(cell);
 }
 
 // define a lisp function
@@ -716,8 +726,8 @@ cell_base_t* lambda(cell_base_t* cell, env_t env)
 	if(cell->t == LIST)
 	{
 	    list_t* list = (list_t*)cell;
-	    val->params = (list_t*)list->car;
-	    val->body = (list_t*)list->cdr;
+	    val->params = CAR(list);
+	    val->body = CDR(list);
 	    return &val->_base;
 	}
     }
@@ -784,6 +794,7 @@ void print_cell(cell_base_t* cell)
     if(!NOT_NIL(cell))
     {
 	printf("NIL\n");
+	return;
     }
     
     switch(cell->t)
@@ -865,7 +876,7 @@ void lisp(const char* expr)
     cell_base_t* cell = (cell_base_t*)ast;
     SET("ast", ast);
 
-//    print_cell((cell_base_t*)ast);
+    print_cell((cell_base_t*)ast);
 
     while( NOT_NIL(cell) )
     {
