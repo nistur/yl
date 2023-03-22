@@ -582,11 +582,14 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 
 	if (NOT_NIL(val))
 	{
-	    cell_t* strcar = str(val, env);
-	    int l = strlen(strcar->sym);
-	    char* pbuff = sb_add(buff, l+3);
-	    sprintf(pbuff-1, ". %s ", strcar->sym);
-	    p += l+3;
+	    if(val->t != LIST || (NOT_NIL(CAR(val)) && NOT_NIL(CDR(val))))
+	    {
+	      cell_t* strcar = str(val, env);
+	      int l = strlen(strcar->sym);
+	      char* pbuff = sb_add(buff, l+3);
+	      sprintf(pbuff-1, ". %s ", strcar->sym);
+	      p += l+3;
+	    }
 	}
 
 	char* pbuff = sb_add(buff, p+2);
@@ -856,7 +859,7 @@ void lisp(const char* expr)
     cell_base_t* cell = (cell_base_t*)ast;
     SET("ast", ast);
 
-    print_cell((cell_base_t*)ast);
+    //print_cell((cell_base_t*)ast);
 
     while( NOT_NIL(cell) )
     {
