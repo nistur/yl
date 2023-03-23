@@ -493,6 +493,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 // Cleanup memory from an unused cell
 void Free(cell_base_t* cell)
 {
+    if(cell == NIL || cell == T || cell == F) return; // don't free these
     switch(cell->t)
     {
     case STRING:
@@ -501,11 +502,9 @@ void Free(cell_base_t* cell)
 	break;
     case LIST:
     {
-	while(NOT_NIL(cell))
-	{
-	    if(NOT_NIL(CAR(cell))) RELEASE(CAR(cell));
-	    cell = CDR(cell);
-	}
+	RELEASE(CAR(cell));
+	RELEASE(CDR(cell));
+	break;
     }
     break;
     case QUOT:
@@ -519,7 +518,6 @@ void Free(cell_base_t* cell)
     case FUNC:
       break; // these don't have any additional memory allocated
     }
-    if(cell == NIL || cell == T || cell == F) return; // don't free these
     free(cell);
 }
 
