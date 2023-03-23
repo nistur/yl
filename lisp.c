@@ -434,7 +434,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 		while(NOT_NIL(name) && NOT_NIL(CAR(name)) && NOT_NIL(val) && NOT_NIL(CAR(val)))
 		{
 		    __SET(hash(((cell_t*)CAR(name))->sym),
-			  Eval(val, env),
+			  Eval(CAR(val), env),
 			  scope);
 		    name = CDR(name);
 		    val = CDR(val);
