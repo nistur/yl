@@ -56,7 +56,7 @@
 // Create a new list
 #define LIST() CELL(LIST,0)
 // Create a new Lisp function
-#define FUNL() (fn_t*)CELL(FUNL,0)
+#define FUNL() CELL(FUNL,0)
 // Quote the following cell
 #define QUOTE() CELL(QUOT,0)
 // Push a value onto a list
@@ -134,15 +134,6 @@ typedef struct _cell_base_t
 
 void Free(cell_base_t* cell);
 
-// Lisp function, params used for renaming parameters, body contains executablt
-typedef struct _fn_t
-{
-    cell_base_t _base;
-    list_t*      params;
-    list_t*      body;
-} fn_t;
-
-
 // Environment/scope, a simple hashmap lookup, with ability to have children
 typedef struct _env_t
 {
@@ -201,34 +192,32 @@ env_t _env()
   return env;
 }
 
+int ___i = 0;
 // Create a new cell
 cell_base_t* _cell(cell_type t, void* val)
 {
-    cell_base_t* cell;
+    ++___i;
+    cell_base_t* cell = malloc(sizeof(cell_t));
+    memset(cell, 0, sizeof(cell_t));
+    cell->t = t;
+    
     if(t == LIST || t == FUNL)
     {
-	cell = malloc(sizeof(list_t));
 	cell->pair.car = NOT_NIL(val) ? val : NIL;
 	cell->pair.cdr = NIL;
     }
     else if(t == QUOT)
     {
-      cell = malloc(sizeof(cell_t));
       cell->inner = NOT_NIL(val) ? val : NIL;
     }
     else if(t == VAL)
     {
-	cell =  malloc(sizeof(cell_t));
-	memset(cell, 0, sizeof(cell_t));
-	((cell_t*)cell)->val = (int)val;
+	cell->val = (int)val;
     }
     else
     {
-	cell = malloc(sizeof(cell_t));
-	memset(cell, 0, sizeof(cell_t));
-	((cell_t*)cell)->sym = (sym_t)val;
+	cell->sym = val;
     }
-    cell->t = t;
     RETAIN(cell);
     return cell;
 }
@@ -468,6 +457,17 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
     return cell;
 }
 
+cell_base_t* ParseLisp(cell_base_t* cell, env_t env)
+{
+    cell = Eval(cell, env);
+    ast_t ast = LIST();
+    if(cell->t == STRING)
+    {
+	ParseList(ast, cell->sym);
+    }
+    return ast;
+}
+
 // Cleanup memory from an unused cell
 void Free(cell_base_t* cell)
 {
@@ -496,6 +496,7 @@ void Free(cell_base_t* cell)
     case FUNC:
       break; // these don't have any additional memory allocated
     }
+    --___i;
     free(cell);
 }
 
@@ -802,6 +803,14 @@ cell_base_t* print_cell_lisp(cell_base_t* cell, env_t env)
     return NIL;
 }
 
+cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
+{
+    // the first eval is to prepare the param
+    cell = Eval(cell, env);
+    // then actually eval what requested
+    return Eval(cell, env);
+}
+
 // main entry point
 void lisp(const char* expr)
 {
@@ -819,8 +828,9 @@ void lisp(const char* expr)
     SET("set!", CELL( FUNC, set));
     SET("lambda", CELL( FUNC, lambda));
     SET("read-file-text", CELL( FUNC, lisp_read_file_text));
-    SET("eval", CELL( FUNC, Eval));
+    SET("eval", CELL( FUNC, lisp_eval));
     SET("while", CELL( FUNC, lisp_while));
+    SET("parse", CELL(FUNC, ParseLisp));
 
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
@@ -832,9 +842,9 @@ void lisp(const char* expr)
 
     ast_t ast = Parse(expr);
     cell_base_t* cell = (cell_base_t*)ast;
-    SET("ast", ast);
 
-    //print_cell((cell_base_t*)ast);
+    // set the ast to be available in lisp in case we want it
+    SET("ast", ast);
 
     while( NOT_NIL(cell) )
     {
