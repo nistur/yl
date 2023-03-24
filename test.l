@@ -10,6 +10,9 @@
 (set! 'double (lambda (n) (+ n n)))
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; The following things work
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (println "hello world")
 (println (cons 1 2))
 (println (cons 1 (cons 2 3)))
@@ -26,10 +29,21 @@
 (println (car '(1 2 3)))
 (println (cdr '(1 2 3)))
 (println (cdr (cdr '(1 2 3))))
+;;(println "This should be commented out")
+(println
+ ;;"This is a commented message"
+ "This is a message")
 (println (cddr (cons 1 (cons 2 3))))
 (println (double (3)))
 (eval (parse (read-file-text "test-import.l")))
+=======
+(println (map double (cons 3 (cons 4 (cons 5 nil)))))
+(println (map double '(1 2 3)))
+(println ((lambda (x) (+ x x)) 1))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; This doesn't work and is being tested
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (println (map double (cons 3 (cons 4 5))))
 
 
