@@ -14,7 +14,7 @@ CFLAGS=-g -Wall -Wextra
 LDFLAGS=$(CFLAGS)
 
 run: $(STAGE0)
-	$(STAGE0) test.l
+	$(STAGE0) stage0.l
 
 $(STAGE0): dirs $(STAGE0_OBJS)
 	$(CC) -o $@ $(STAGE0_OBJS) $(LDFLAGS)

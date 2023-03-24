@@ -215,6 +215,12 @@ cell_base_t* _cell(cell_type t, void* val)
     {
 	cell->val = (int)val;
     }
+    else if(t == STRING || t == SYM)
+    {
+	int len = strlen((char*)val)+1;
+	cell->sym = malloc(len);
+	memcpy(cell->sym, val, len);
+    }
     else
     {
 	cell->sym = val;
@@ -657,10 +663,34 @@ cell_base_t* set(cell_base_t* cell, env_t env)
     if( NOT_NIL(name) && name->t == SYM)
     {
 	cell_base_t* val = Eval(CADR(cell), env);
+
+	// set should apply globally, not to the local scope,
+	// so step back up to the global scope and store the
+	// value there
+	while(env->_parent != NULL) env = env->_parent;
+	
 	REPLACE(((cell_t*)name)->sym, val);
-//	return val;
+	//return val;
     }
     return NIL;
+}
+
+cell_base_t* concat(cell_base_t* cell, env_t env)
+{
+    char* val = NULL;
+    while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
+    {
+	cell_base_t* res = str(CAR(cell), env);
+	int len = strlen(res->sym)+1;
+	sb_add(val, len);
+	// using sprintf to repeatedly concatenate
+	// because it means I don't have to worry about null terminators
+	sprintf(val, "%s%s", val, res->sym);
+	cell = CDR(cell);
+    }
+    cell = CELL(STRING, val);
+    sb_free(val);
+    return cell;   
 }
 
 cell_base_t* cons(cell_base_t* cell, env_t env)
@@ -823,7 +853,13 @@ cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
     // the first eval is to prepare the param
     cell = Eval(cell, env);
     // then actually eval what requested
-    return Eval(cell, env);
+    cell_base_t* res = NIL;
+    while( NOT_NIL(cell) )
+    {
+	res = Eval( cell, env );
+	cell = CDR(cell);
+    }
+    return res;
 }
 
 // main entry point
@@ -846,7 +882,8 @@ void lisp(const char* expr)
     SET("eval", CELL( FUNC, lisp_eval));
     SET("while", CELL( FUNC, lisp_while));
     SET("parse", CELL(FUNC, ParseLisp));
-
+    SET("concat", CELL(FUNC, concat));
+    
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
     F = NIL;
