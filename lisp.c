@@ -60,8 +60,9 @@
 // Quote the following cell
 #define QUOTE() CELL(QUOT,0)
 // Push a value onto a list
-#define PUSH_BACK(l, val)						\
+#define PUSH_BACK(list, val)						\
   {									\
+      list_t* l = list;							\
       while(NOT_NIL(CAR(l)))						\
       {									\
 	if(CDR(l) == NIL) l->pair.cdr = LIST();				\
@@ -402,40 +403,11 @@ const char* ParseList(list_t* list, const char* expr)
     return pTokEnd;
 }
 
-void Consify(cell_base_t* cell)
-{
-    if(cell == NIL) return;
-    if(cell->t == LIST)
-    {
-	cell_base_t* car = CAR(cell);
-	cell_base_t* cdr = CDR(cell);
-	
-	Consify(car);
-	Consify(cdr);
-	
-	if(car->t == LIST && CAR(car) == NIL && CDR(car) == NIL)
-	    ((list_t*)cell)->pair.car = NIL;
-	
-	if(cdr->t == LIST && CAR(cdr) == NIL && CDR(cdr) == NIL)
-	    ((list_t*)cell)->pair.cdr = NIL;
-	else if(cdr->t == LIST && CAR(cdr) != NIL && CDR(cdr) == NIL)
-	    ((list_t*)cell)->pair.cdr = CAR(cdr);
-    }
-    else if(cell->t == QUOT)
-    {
-	Consify(((cell_t*)cell)->inner);
-    }
-   
-}
-
 // Parse an expression into a syntax tree.
 ast_t Parse(const char* expr)
 {
     ast_t ast = LIST();
     ParseList(ast, expr);
-
-//    Consify((cell_base_t*)ast);
-    
     return ast;
 }
 
@@ -469,13 +441,19 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 		while(NOT_NIL(name) && NOT_NIL(CAR(name)) && NOT_NIL(val) && NOT_NIL(CAR(val)))
 		{
 		    __SET(hash(((cell_t*)CAR(name))->sym),
-			  Eval(val, env),
+			  Eval(CAR(val), env),
 			  scope);
 		    name = CDR(name);
 		    val = CDR(val);
 		}
 
-		cell_base_t* res = Eval(fn->pair.cdr, scope);
+		cell_base_t* res = NIL;
+		fn = fn->pair.cdr;
+		while(NOT_NIL(CAR(fn)))
+		{
+		    res = Eval(CAR(fn), scope);
+		    fn = CDR(fn);
+		}
 		// TODO: Make scope reference counted too, so
 		// we can return lambdas
 		free(scope);
@@ -500,6 +478,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 // Cleanup memory from an unused cell
 void Free(cell_base_t* cell)
 {
+    if(cell == NIL || cell == T || cell == F) return; // don't free these
     switch(cell->t)
     {
     case STRING:
@@ -508,11 +487,9 @@ void Free(cell_base_t* cell)
 	break;
     case LIST:
     {
-	while(NOT_NIL(cell))
-	{
-	    if(NOT_NIL(CAR(cell))) RELEASE(CAR(cell));
-	    cell = CDR(cell);
-	}
+	RELEASE(CAR(cell));
+	RELEASE(CDR(cell));
+	break;
     }
     break;
     case QUOT:
@@ -526,7 +503,6 @@ void Free(cell_base_t* cell)
     case FUNC:
       break; // these don't have any additional memory allocated
     }
-    if(cell == NIL || cell == T || cell == F) return; // don't free these
     free(cell);
 }
 
@@ -679,7 +655,7 @@ cell_base_t* set(cell_base_t* cell, env_t env)
     cell_base_t* name = Eval(CAR(cell), env);
     if( NOT_NIL(name) && name->t == SYM)
     {
-	cell_base_t* val = Eval(CDR(cell), env);
+	cell_base_t* val = Eval(CADR(cell), env);
 	REPLACE(((cell_t*)name)->sym, val);
 //	return val;
     }
