@@ -38,9 +38,9 @@
 (println (cddr (cons 1 (cons 2 3))))
 (println (double (3)))
 (println (map double (cons 3 (cons 4 (cons 5 nil)))))
+(println (map double '(1 2 3)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; This doesn't work and is being tested
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (println (map double (cons 3 (cons 4 5))))
-(println (map double '(1 2 3)))

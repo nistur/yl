@@ -680,7 +680,15 @@ cell_base_t* car( cell_base_t* cell, env_t env)
 cell_base_t* cdr( cell_base_t* cell, env_t env)
 {
     cell = Eval(cell, env);
-    return CDR(cell);
+    cell = CDR(cell);
+    if(cell->t == LIST &&
+       !NOT_NIL(CAR(cell)) &&
+       !NOT_NIL(CDR(cell)))
+      // If we're at the end of a list, this is
+      // provided by (NIL . NIL) but we don't want
+      // CDR to return this, so instead just return NIL
+      return NIL;
+    return cell;
 }
 
 // define a lisp function
