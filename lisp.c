@@ -156,6 +156,7 @@ typedef struct _env_t
 cell_base_t* NIL;
 cell_base_t* T;
 cell_base_t* F;
+cell_base_t* COMMENT;
 
 //----------------------------------------------------------------------------//
 // Utility functions                                                          //
@@ -337,6 +338,11 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
     case ')':
 	*cell = NIL;
 	return pTokEnd;
+    case ';':
+      // scan to the end of the line
+      while(*pTokEnd != '\n') ++pTokEnd;
+      *cell = COMMENT;
+      return pTokEnd;
     }
 
     if( *pTokStart >= '0' && *pTokStart <= '9' )
@@ -384,8 +390,9 @@ const char* ParseList(list_t* list, const char* expr)
 	SKIP_WHITESPACE(pTokStart);
 	cell_base_t* cell = NIL;
 	pTokEnd = ParseToken(&cell, pTokStart);
-	
-	PUSH_BACK(list, cell);
+
+	if(cell != COMMENT)
+	  PUSH_BACK(list, cell);
 
 	
 	// next token
@@ -849,7 +856,8 @@ void lisp(const char* expr)
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
     F = NIL;
-
+    COMMENT = CELL(SYM, ";;; COMMENT ;;;");
+    
     SET("t", T);
     SET("f", F);
     SET("nil", NIL);

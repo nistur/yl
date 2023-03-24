@@ -20,6 +20,10 @@
 (println (car '(1 2 3)))
 (println (cdr '(1 2 3)))
 (println (cdr (cdr '(1 2 3))))
+;;(println "This should be commented out")
+(println
+ ;;"This is a commented message"
+ "This is a message")
 
 (println (cddr (cons 1 (cons 2 3))))
 
