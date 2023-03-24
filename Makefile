@@ -1,17 +1,31 @@
-.phony: stage0 run
+.phony: run dirs clean
 
 CC=gcc
 
-STAGE0_OBJS=main.o lisp.o
+OUTDIR=out
+OBJDIR=obj
+SRCDIR=src
+
+STAGE0_OBJS=$(OBJDIR)/main.o \
+		$(OBJDIR)/lisp.o
+STAGE0=$(OUTDIR)/stage0
 
 CFLAGS=-g -Wall -Wextra
 LDFLAGS=$(CFLAGS)
 
-run: stage0
-	./stage0 test.l
+run: $(STAGE0)
+	$(STAGE0) test.l
 
-stage0: $(STAGE0_OBJS)
+$(STAGE0): dirs $(STAGE0_OBJS)
 	$(CC) -o $@ $(STAGE0_OBJS) $(LDFLAGS)
 
-%.o:%.c
+$(OBJDIR)/%.o:$(SRCDIR)/stage0/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+dirs:
+	mkdir -p $(OUTDIR)
+	mkdir -p $(OBJDIR)
+
+clean:
+	rm $(OBJDIR)/*.o
+	rm $(STAGE0)
