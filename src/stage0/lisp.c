@@ -714,7 +714,7 @@ cell_base_t* concat(cell_base_t* cell, env_t env)
 {
     char* val = NULL;
     val = sb_add(val,1);
-    sprintf(val, "");
+    val[0] = 0;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
 	cell_base_t* res = str(CAR(cell), env);
@@ -762,7 +762,6 @@ cell_base_t* cdr( cell_base_t* cell, env_t env)
 // define a lisp function
 cell_base_t* lambda(cell_base_t* cell, env_t env)
 {
-  UNUSED(env);
     {
 	cell_t* val = FUNL();
 	if(cell->t == LIST)
@@ -907,6 +906,34 @@ cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
     return res;
 }
 
+cell_base_t* cond(cell_base_t* cell, env_t env)
+{
+  cell = Eval(cell, env);
+  while(NOT_NIL(cell))
+  {
+    cell_base_t* test = Eval(CADR(cell), env);
+    if(test == T)
+    {
+      return Eval(CDDR(cell), env);
+    }
+    cell = CDR(cell);
+  }
+}
+
+#define DEFINE_PREDICATE(name, type)					\
+  cell_base_t* name##_predicate(cell_base_t *cell, env_t env)		\
+  {									\
+    cell = Eval(cell, env);						\
+    return cell->t == type ? T : F;					\
+  }
+#define DECLARE_PREDICATE(name)			\
+  SET(#name"?", CELL(FUNC, name##_predicate));
+
+DEFINE_PREDICATE(list, LIST);
+DEFINE_PREDICATE(symbol, SYM);
+DEFINE_PREDICATE(string, STRING);
+DEFINE_PREDICATE(value, VAL);
+
 // main entry point
 void lisp(const char* expr)
 {
@@ -928,6 +955,13 @@ void lisp(const char* expr)
     SET("while", CELL( FUNC, lisp_while));
     SET("parse", CELL(FUNC, ParseLisp));
     SET("concat", CELL(FUNC, concat));
+    SET("cond", CELL(FUNC, cond));
+    DECLARE_PREDICATE(list);
+    DECLARE_PREDICATE(symbol);
+    DECLARE_PREDICATE(string);
+    DECLARE_PREDICATE(value);
+
+
     
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
@@ -951,8 +985,8 @@ void lisp(const char* expr)
     }
     
     Free(&ast);
-    Free(&COMMENT);
+    //    Free(&COMMENT);
     FreeEnv(&env);
 
-    printf("Number of leaked cells:%d/%d (%dB)\n", ___i, ___t, ___i*sizeof(cell_t));
+    printf("Number of leaked cells:%d/%d (%luB)\n", ___i, ___t, ___i*sizeof(cell_t));
 }
