@@ -908,16 +908,16 @@ cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
 
 cell_base_t* cond(cell_base_t* cell, env_t env)
 {
-  cell = Eval(cell, env);
-  while(NOT_NIL(cell))
-  {
-    cell_base_t* test = Eval(CADR(cell), env);
-    if(test == T)
+    while(NOT_NIL(cell))
     {
-      return Eval(CDDR(cell), env);
+	cell_base_t* test = Eval(CAR(CAR(cell)), env);
+	if(test == T)
+	{
+	    return Eval(CADR(CAR(cell)), env);
+	}
+	cell = CDR(cell);
     }
-    cell = CDR(cell);
-  }
+    return NIL;
 }
 
 #define DEFINE_PREDICATE(name, type)					\
