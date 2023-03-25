@@ -920,6 +920,36 @@ cell_base_t* cond(cell_base_t* cell, env_t env)
     return NIL;
 }
 
+cell_base_t* let(cell_base_t* cell, env_t env)
+{
+    env_t scope = ENV();
+    scope->_parent = env;
+    RETAIN(scope);
+    cell_base_t* values = CAR(cell);
+    while(NOT_NIL(values))
+    {
+	cell_base_t* name = CAR(CAR(values));
+	cell_base_t* value = Eval(CDR(CAR(values)), env);
+	
+	if(NOT_NIL(name))
+	{
+	    __SET(hash(name->sym), value, scope);
+	}
+	
+	values = CDR(values);
+    }
+    cell_base_t* res = NIL;
+    cell = CDR(cell);
+    while(NOT_NIL(cell))
+    {
+	res = Eval(cell, scope);
+	cell = CDR(cell);
+    }
+    RELEASE_ENV(scope);
+
+    return res;
+}
+
 #define DEFINE_PREDICATE(name, type)					\
   cell_base_t* name##_predicate(cell_base_t *cell, env_t env)		\
   {									\
@@ -956,6 +986,7 @@ void lisp(const char* expr)
     SET("parse", CELL(FUNC, ParseLisp));
     SET("concat", CELL(FUNC, concat));
     SET("cond", CELL(FUNC, cond));
+    SET("let", CELL(FUNC, let));
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);

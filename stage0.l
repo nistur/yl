@@ -1,9 +1,6 @@
 (eval (parse (read-file-text "src/stage0/stage0.l")))
 
-
-(set! 'predicate-test (lambda (s)
-			(cond
-			  ((string? s) (println "string"))
-			  ((value? s) (println "value")))))
-(predicate-test "mushroom")
-(predicate-test 1)
+(let ((test (concat stage0-path "banana"))
+      (test2 (concat stage0-path "mushroom")))
+   (println test)
+   (println test2) )
