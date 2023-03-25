@@ -512,8 +512,8 @@ void Free(cell_base_t** cell)
 	break;
     case LIST:
     {
-	RELEASE((*cell)->pair.car);
-	RELEASE((*cell)->pair.cdr);
+	if(NOT_NIL((*cell)->pair.car)) RELEASE((*cell)->pair.car);
+	if(NOT_NIL((*cell)->pair.cdr)) RELEASE((*cell)->pair.cdr);
 	break;
     }
     break;
@@ -965,7 +965,7 @@ DEFINE_PREDICATE(string, STRING);
 DEFINE_PREDICATE(value, VAL);
 
 // main entry point
-void lisp(const char* expr)
+int main(int argc, char** argv)
 {
   env_t env = ENV();
     SET("print-cell", CELL(FUNC, print_cell_lisp));
@@ -992,6 +992,13 @@ void lisp(const char* expr)
     DECLARE_PREDICATE(string);
     DECLARE_PREDICATE(value);
 
+    cell_base_t* args = LIST();
+    for(int i = 0; i < argc; ++i)
+    {
+	cell_base_t* arg = CELL(STRING, argv[i]);
+	PUSH_BACK(args, arg);
+    }
+    SET("args", args);
 
     
     NIL = CELL(VAL, 0 );
@@ -1003,7 +1010,7 @@ void lisp(const char* expr)
     SET("f", F);
     SET("nil", NIL);
 
-    ast_t ast = Parse(expr);
+    ast_t ast = Parse("(eval (parse (read-file-text \"stage0.l\")))");
     cell_base_t* cell = (cell_base_t*)ast;
 
     // set the ast to be available in lisp in case we want it

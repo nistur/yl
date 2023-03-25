@@ -6,15 +6,14 @@ OUTDIR=out
 OBJDIR=obj
 SRCDIR=src
 
-STAGE0_OBJS=$(OBJDIR)/main.o \
-		$(OBJDIR)/lisp.o
+STAGE0_OBJS=$(OBJDIR)/stage0.o
 STAGE0=$(OUTDIR)/stage0
 
 CFLAGS=-g -Wall -Wextra
 LDFLAGS=$(CFLAGS)
 
 run: $(STAGE0)
-	$(STAGE0) stage0.l
+	$(STAGE0) stage1.l
 
 $(STAGE0): dirs $(STAGE0_OBJS)
 	$(CC) -o $@ $(STAGE0_OBJS) $(LDFLAGS)
