@@ -1071,7 +1071,7 @@ int main(int argc, char** argv)
     }
     
     Free(&ast);
-    //    Free(&COMMENT);
+    Free(&COMMENT);
     FreeEnv(&env);
 
     printf("Number of leaked cells:%d/%d (%luB)\n", ___i, ___t, ___i*sizeof(cell_t));
