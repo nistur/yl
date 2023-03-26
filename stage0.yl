@@ -1,4 +1,4 @@
-(eval (parse (read-file-text "src/stage0/stage0.l")))
+(eval (parse (read-file-text "src/stage0/stage0.yl")))
 
 (let ((FILE (car (cdr args))))
    (eval (read-file-text FILE)))

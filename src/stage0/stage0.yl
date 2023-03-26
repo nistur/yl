@@ -1,0 +1,14 @@
+; test
+(eval (parse (read-file-text "src/stage0/bootstrap.yl")))
+
+(set! 'string-test (lambda (a b)
+		     (if (string=? a b)
+			 (println "EQUAL")
+			 (println "NEQUAL"))))
+
+(string-test "one" "one")
+(string-test "one" "two")
+
+(println (substr "banana" 2 -1))
+
+(load "parser.yl")

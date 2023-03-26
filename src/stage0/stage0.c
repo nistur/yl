@@ -349,7 +349,7 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
       return pTokEnd;
     }
 
-    if( *pTokStart >= '0' && *pTokStart <= '9' )
+    if( (*pTokStart >= '0' && *pTokStart <= '9') || *pTokStart == '-' )
     {
 	while((*pTokEnd >= '0' && *pTokEnd <= '9') || *pTokEnd == '.')
 	    ++pTokEnd;
@@ -400,10 +400,6 @@ const char* ParseList(list_t* list, const char* expr)
 	{
 	    RETAIN(cell);
 	    PUSH_BACK(list, cell);
-	}
-	else
-	{
-	    RELEASE(cell);
 	}
 
 	
@@ -950,6 +946,56 @@ cell_base_t* let(cell_base_t* cell, env_t env)
     return res;
 }
 
+cell_base_t* string_equals(cell_base_t* cell, env_t env)
+{
+  cell_base_t* test = Eval(CAR(cell), env);
+  if(test->t != SYM && test->t != STRING)
+    return NIL;
+  cell = CDR(cell);
+  while(NOT_NIL(cell))
+  {
+    if(CAR(cell) == NIL) break;
+    
+    cell_base_t* val = Eval(CAR(cell), env);
+    if(val->t != SYM && val->t != STRING)
+      return NIL;
+
+    if(val == NIL) return NIL;
+
+    if(strcmp(val->sym, test->sym) != 0) return NIL;
+
+    cell = CDR(cell);
+  }
+  return T;
+}
+
+cell_base_t* substr(cell_base_t* cell, env_t env)
+{
+  cell_base_t* string = str(CAR(cell), env);
+  cell_base_t* start = Eval(CADR(cell), env);
+  cell_base_t* end = Eval(CADDR(cell), env);
+
+  if(string->t != SYM && string->t != STRING) return NIL;
+  if(start->t != VAL) return NIL;
+  if(end->t != VAL) return NIL;
+
+  int cend = strlen(string->sym);
+  if(end != NIL)
+  {
+    if(end->val < 0) cend += end->val;
+    else cend = end->val;
+  }
+  int size = cend - start->val;
+  char* dest = malloc(size+1);
+
+  strncpy(dest, string->sym + start->val, size);
+  dest[size] = 0;
+  
+  cell = CELL(STRING, dest);
+  free(dest);
+  return cell;
+}
+
 #define DEFINE_PREDICATE(name, type)					\
   cell_base_t* name##_predicate(cell_base_t *cell, env_t env)		\
   {									\
@@ -987,6 +1033,8 @@ int main(int argc, char** argv)
     SET("concat", CELL(FUNC, concat));
     SET("cond", CELL(FUNC, cond));
     SET("let", CELL(FUNC, let));
+    SET("string=?", CELL(FUNC, string_equals));
+    SET("substr", CELL(FUNC, substr));
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);
@@ -1010,7 +1058,7 @@ int main(int argc, char** argv)
     SET("f", F);
     SET("nil", NIL);
 
-    ast_t ast = Parse("(eval (parse (read-file-text \"stage0.l\")))");
+    ast_t ast = Parse("(eval (parse (read-file-text \"stage0.yl\")))");
     cell_base_t* cell = (cell_base_t*)ast;
 
     // set the ast to be available in lisp in case we want it
@@ -1023,7 +1071,7 @@ int main(int argc, char** argv)
     }
     
     Free(&ast);
-    //    Free(&COMMENT);
+    Free(&COMMENT);
     FreeEnv(&env);
 
     printf("Number of leaked cells:%d/%d (%luB)\n", ___i, ___t, ___i*sizeof(cell_t));
