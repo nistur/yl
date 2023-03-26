@@ -349,7 +349,7 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
       return pTokEnd;
     }
 
-    if( *pTokStart >= '0' && *pTokStart <= '9' )
+    if( (*pTokStart >= '0' && *pTokStart <= '9') || *pTokStart == '-' )
     {
 	while((*pTokEnd >= '0' && *pTokEnd <= '9') || *pTokEnd == '.')
 	    ++pTokEnd;

@@ -9,6 +9,6 @@
 (string-test "one" "one")
 (string-test "one" "two")
 
-(println (substr "banana" 2 4))
+(println (substr "banana" 2 -1))
 
 (load "parser.yl")
