@@ -12,3 +12,5 @@
 (println (substr "banana" 2 -1))
 
 (load "parser.yl")
+
+(println (substr 'test 2))

@@ -574,6 +574,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
     switch(val->t)
     {
     case SYM:
+	return CELL(STRING, val->sym);
     case STRING:
 	return val;
     case VAL:
