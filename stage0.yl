@@ -1,4 +1,4 @@
-(eval (parse (read-file-text "src/stage0/stage0.l")))
+(eval (parse (read-file-text "src/stage0/stage0.yl")))
 
 (let ((stage1 (car (cdr args))))
    (print-cell (parse-ast  stage1)))

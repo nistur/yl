@@ -5,4 +5,6 @@
 			 (println "EQUAL")
 			 (println "NEQUAL"))))
 
+(string-test "one" "one")
+(string-test "one" "two")
 (load "parser.yl")
