@@ -1,3 +1,4 @@
+; test
 (eval (parse (read-file-text "src/stage0/bootstrap.yl")))
 
 (set! 'string-test (lambda (a b)

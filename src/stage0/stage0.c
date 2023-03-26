@@ -401,10 +401,6 @@ const char* ParseList(list_t* list, const char* expr)
 	    RETAIN(cell);
 	    PUSH_BACK(list, cell);
 	}
-	else
-	{
-	    RELEASE(cell);
-	}
 
 	
 	// next token
