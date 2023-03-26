@@ -973,6 +973,33 @@ cell_base_t* string_equals(cell_base_t* cell, env_t env)
   return T;
 }
 
+cell_base_t* substr(cell_base_t* cell, env_t env)
+{
+  cell_base_t* string = str(CAR(cell), env);
+  cell_base_t* start = Eval(CADR(cell), env);
+  cell_base_t* end = Eval(CADDR(cell), env);
+
+  if(string->t != SYM && string->t != STRING) return NIL;
+  if(start->t != VAL) return NIL;
+  if(end->t != VAL) return NIL;
+
+  int cend = strlen(string->sym);
+  if(end != NIL)
+  {
+    if(end->val < 0) cend += end->val;
+    else cend = end->val;
+  }
+  int size = cend - start->val;
+  char* dest = malloc(size+1);
+
+  strncpy(dest, string->sym + start->val, size);
+  dest[size] = 0;
+  
+  cell = CELL(STRING, dest);
+  free(dest);
+  return cell;
+}
+
 #define DEFINE_PREDICATE(name, type)					\
   cell_base_t* name##_predicate(cell_base_t *cell, env_t env)		\
   {									\
@@ -1011,6 +1038,7 @@ int main(int argc, char** argv)
     SET("cond", CELL(FUNC, cond));
     SET("let", CELL(FUNC, let));
     SET("string=?", CELL(FUNC, string_equals));
+    SET("substr", CELL(FUNC, substr));
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);
