@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 // using stretchy buffers from nothings.org as it's a perfectly good
 // minimal solution, and I don't want to rewrite _everything_ from scratch
@@ -344,7 +345,7 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
 	return pTokEnd;
     case ';':
       // scan to the end of the line
-      while(*pTokEnd != '\n') ++pTokEnd;
+      while(*pTokEnd != '\n' && *pTokEnd !=0) ++pTokEnd;
       *cell = COMMENT;
       return pTokEnd;
     }
@@ -701,8 +702,8 @@ cell_base_t* set(cell_base_t* cell, env_t env)
 	// value there
 	while(env->_parent != NULL) env = env->_parent;
 	
-	REPLACE(((cell_t*)name)->sym, val);
 	RETAIN(val);
+	REPLACE(name->sym, val);
     }
     return NIL;
 }
@@ -927,7 +928,7 @@ cell_base_t* let(cell_base_t* cell, env_t env)
     {
 	cell_base_t* name = CAR(CAR(values));
 	cell_base_t* value = Eval(CDR(CAR(values)), env);
-	
+//	RETAIN(value);
 	if(NOT_NIL(name))
 	{
 	    __SET(hash(name->sym), value, scope);
@@ -1011,6 +1012,19 @@ DEFINE_PREDICATE(symbol, SYM);
 DEFINE_PREDICATE(string, STRING);
 DEFINE_PREDICATE(value, VAL);
 
+cell_base_t* is_nil(cell_base_t* cell, env_t env)
+{
+    return NOT_NIL(Eval(cell, env)) ? F : T;
+}
+
+cell_base_t* file_exists_p(cell_base_t* cell, env_t env)
+{
+    cell = str(cell, env);
+    struct stat st;
+    int s = stat(cell->sym, &st);
+    return s == 0 ? T : F;
+}
+
 // main entry point
 int main(int argc, char** argv)
 {
@@ -1036,6 +1050,8 @@ int main(int argc, char** argv)
     SET("let", CELL(FUNC, let));
     SET("string=?", CELL(FUNC, string_equals));
     SET("substr", CELL(FUNC, substr));
+    SET("nil?", CELL(FUNC, is_nil));
+    SET("file-exists?", CELL(FUNC, file_exists_p));
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);

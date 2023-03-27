@@ -1,4 +1,15 @@
 (eval (parse (read-file-text "src/stage0/stage0.yl")))
 
-(let ((FILE (car (cdr args))))
-   (eval (read-file-text FILE)))
+
+(let ((FILE (cadr args)))
+  ;; Remove the interpreter from the front of the args list
+  ;; This will have the affect of making it seem like the program
+  ;; being run within it to be the executed program
+  ;;
+  ;; TODO- this currently doesn't work because for some reason
+  ;; it sets  FILE to NIL. Not sure why or how, so for now,
+  ;; just pass the whole thing through, as (cadr args) will be
+  ;; the same as (caddr args) in our case anyway, it won't
+  ;; make any difference, but it is still wrong
+;  (set! 'args (cdr args))
+  (eval (read-file-text FILE)))

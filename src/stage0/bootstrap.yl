@@ -1,4 +1,26 @@
 (set! 'eval--internal eval)
 (set! 'eval (lambda (x) (eval--internal (parse x))))
-(set! 'stage0-path "src/stage0/")
-(set! 'load (lambda (file) (eval (read-file-text (concat stage0-path file)))))
+
+(set! 'cadr (lambda (x) (car (cdr x))))
+
+
+(set! 'load (lambda (file) (eval (read-file-text file))))
+
+(set! 'search-path '())
+
+(set! 'add-to-list (lambda (lst val)
+      		     (if (nil? lst)
+			 (cons val '())
+			 (cons (car lst) (add-to-list (cdr lst) val)))))
+
+(set! 'bootstrap/load-file (lambda (filename lst)
+			     (if (null? lst)
+				 nil
+				 (let ((path (concat (car lst) "/" filename)))
+				   (if (file-exists? path)
+				       (load path)
+				       (bootstrap/load-file filename (cdr lst)))))))
+
+(set! 'load-file (lambda (file)
+		   (bootstrap/load-file file search-path)))
+		   

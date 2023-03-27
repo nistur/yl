@@ -1,16 +1,4 @@
-; test
+; Add some additional 'standard' functionality by wrapping the little
+; that we're providing in C.
+; NOTE: This will replace (eval x) with the equivalent of (eval (parse x))
 (eval (parse (read-file-text "src/stage0/bootstrap.yl")))
-
-(set! 'string-test (lambda (a b)
-		     (if (string=? a b)
-			 (println "EQUAL")
-			 (println "NEQUAL"))))
-
-(string-test "one" "one")
-(string-test "one" "two")
-
-(println (substr "banana" 2 -1))
-
-(load "parser.yl")
-
-(println (substr 'test 2))
