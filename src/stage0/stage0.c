@@ -1,3 +1,21 @@
+/* Copyright (c) 2023 Philipp Geyer <philipp@geyer.co.uk>
+ * 
+ * This software is provided 'as-is', without any express or implied
+ * warranty. In no event will the authors be held liable for any damages
+ * arising from the use of this software.
+ * 
+ * Permission is granted to anyone to use this software for any purpose,
+ * including commercial applications, and to alter it and redistribute it
+ * freely, subject to the following restrictions:
+ * 
+ * 1. The origin of this software must not be misrepresented; you must not
+ *    claim that you wrote the original software. If you use this software
+ *    in a product, an acknowledgment in the product documentation would be
+ *    appreciated but is not required.
+ * 2. Altered source versions must be plainly marked as such, and must not be
+ *    misrepresented as being the original software.
+ * 3. This notice may not be removed or altered from any source distribution.
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -7,23 +25,32 @@
 #include "stretchy_buffer.h"
 
 //----------------------------------------------------------------------------//
+// Yoctolisp Stage0                                                           //
+//----------------------------------------------------------------------------//
 // Incredibly minimalist lisp                                                 //
 //----------------------------------------------------------------------------//
-// I am not sure why I've added a small lisp interpreter here, but I thought  //
-// it would be fun. It supports very little functionality, with more intended //
-// to be implemented in lisp itself. At this point it only supports a few     //
-// things:                                                                    //
-// println - output parameters followed by a new line                         //
-// set - set a variable to something                                          //
-// + - perform arithmetric summation between all parameters                   //
-// lambda - define a function                                                 //
-// ' - don't evaluate the following cell                                      //
+// This is a very small implementation of lisp. The intention is that it will //
+// adhere to a subset of R7RS small, just enough to be able to run the stage1 //
+// compiler. At the moment it doesn't include everything needed, it doesn't   //
+// adhere to any standard, with names chosen almost at random, and it also    //
+// leaks memory like a sieve. These are all intending to be addressed         //
+//                                                                            //
+// Note: scripts currently use the .yl extension rather than .scm to make it  //
+// clear that these are _not_ standards compliant scheme scripts yet. This may//
+// change and have them renamed in future when it's closer to scheme.         //
 //----------------------------------------------------------------------------//
-// EXAMPLE                                                                    //
-// (set 'testValue 1)                                                         //
-// (set 'testFn lambda()                                                      //
-//      (println (set 'testValue (+ testValue 1))))                           //
-// (testFn)                                                                   //
+// Example use case:                                                          //
+//   ./stage0 somefile.yl                                                     //
+//                                                                            //
+// available functions inside somefile.yl include, but not exclusively        //
+// (because keeping this list updated would be tedious)                       //
+// (println "banana")                                                         //
+// (let ((banana 1))                                                          //
+//      (println (+ banana 1)))                                               //
+// (set! 'banana (lambda (x) (println (car x))))                              //
+// (banana (cons 1 (cons 2 NIL)))                                             //
+//----------------------------------------------------------------------------//
+//  Proper documentation will follow once this is more standardised and stable//
 //----------------------------------------------------------------------------//
 
 
