@@ -4,4 +4,4 @@
 ; Start our stage1 compiler
 (load-file "stage1.yl")
 
-;;(print-cell args)
+(print-cell (command-line))
