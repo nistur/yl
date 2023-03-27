@@ -1,19 +1,19 @@
-(set! 'eval--internal eval)
-(set! 'eval (lambda (x) (eval--internal (parse x))))
+(define 'eval--internal eval)
+(define 'eval (lambda (x) (eval--internal (parse x))))
 
-(set! 'cadr (lambda (x) (car (cdr x))))
+(define 'cadr (lambda (x) (car (cdr x))))
 
 
-(set! 'load (lambda (file) (eval (read-file-text file))))
+(define 'load (lambda (file) (eval (read-file-text file))))
 
-(set! 'search-path '())
+(define 'search-path '())
 
-(set! 'add-to-list (lambda (lst val)
+(define 'add-to-list (lambda (lst val)
       		     (if (nil? lst)
 			 (cons val '())
 			 (cons (car lst) (add-to-list (cdr lst) val)))))
 
-(set! 'bootstrap/load-file (lambda (filename lst)
+(define 'bootstrap/load-file (lambda (filename lst)
 			     (if (null? lst)
 				 nil
 				 (let ((path (concat (car lst) "/" filename)))
@@ -21,6 +21,8 @@
 				       (load path)
 				       (bootstrap/load-file filename (cdr lst)))))))
 
-(set! 'load-file (lambda (file)
+(define 'load-file (lambda (file)
 		   (bootstrap/load-file file search-path)))
 		   
+
+(define 'command-line (lambda () args))

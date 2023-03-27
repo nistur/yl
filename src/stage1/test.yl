@@ -1,0 +1,15 @@
+;; just a bunch of tests for things I'm currently working on
+(define 'test-var 1)
+(println test-var)
+
+(set! 'test-var 2)
+(println test-var)
+
+(let ((test-var 3))
+  (println test-var)
+  (set! 'test-var 4)
+  (println test-var))
+
+(println test-var)
+(set! 'test-foo 1)
+(println test-foo)

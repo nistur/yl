@@ -697,11 +697,32 @@ cell_base_t* set(cell_base_t* cell, env_t env)
     {
 	cell_base_t* val = Eval(CADR(cell), env);
 
-	// set should apply globally, not to the local scope,
-	// so step back up to the global scope and store the
-	// value there
-	while(env->_parent != NULL) env = env->_parent;
-	
+	int namehash = hash(name->sym);
+	while(env != NULL)
+	{
+	    for(int i = 0; i < sb_count(env->keys); ++i)
+	    {
+		if(env->keys[i] == namehash)
+		{
+		    RETAIN(val);
+		    RELEASE(env->vals[i]);
+		    env->vals[i] = val;
+		    return NIL;
+		}
+		   
+	    }
+	    env = env->_parent;
+	}
+    }
+    return NIL;
+}
+
+cell_base_t* define(cell_base_t* cell, env_t env)
+{
+    cell_base_t* name = Eval(CAR(cell), env);
+    if( NOT_NIL(name) && name->t == SYM)
+    {
+	cell_base_t* val = Eval(CADR(cell), env);
 	RETAIN(val);
 	REPLACE(name->sym, val);
     }
@@ -1039,6 +1060,7 @@ int main(int argc, char** argv)
     SET("<", CELL( FUNC, less));
     SET("not", CELL( FUNC, not));
     SET("if", CELL( FUNC, lisp_if));
+    SET("define", CELL( FUNC, define));
     SET("set!", CELL( FUNC, set));
     SET("lambda", CELL( FUNC, lambda));
     SET("read-file-text", CELL( FUNC, lisp_read_file_text));
