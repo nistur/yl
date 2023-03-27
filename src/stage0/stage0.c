@@ -106,6 +106,8 @@ typedef enum
     FUNC,// C fn
     QUOT,// '
     STRING,// string value
+    OUTPUT_PORT,
+    INPUT_PORT,
 } cell_type;
 
 // C function pointer
@@ -639,7 +641,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 cell_base_t* println(cell_base_t* cell, env_t env)
 {
     cell_base_t* res = str(cell, env);
-    printf("%s\n", res->sym);
+    printf("%s", res->sym);
     return NIL;
 }
 
@@ -1051,7 +1053,7 @@ int main(int argc, char** argv)
 {
   env_t env = ENV();
     SET("print-cell", CELL(FUNC, print_cell_lisp));
-    SET("println", CELL(FUNC, println));
+    SET("display", CELL(FUNC, println));
     SET("+", CELL( FUNC, plus));
     SET("cons", CELL( FUNC, cons));
     SET("car", CELL( FUNC, car));
