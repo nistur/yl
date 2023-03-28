@@ -45,10 +45,10 @@
 //                                                                            //
 // available functions inside somefile.yl include, but not exclusively        //
 // (because keeping this list updated would be tedious)                       //
-// (println "banana")                                                         //
+// (display "banana")                                                         //
 // (let ((banana 1))                                                          //
-//      (println (+ banana 1)))                                               //
-// (set! 'banana (lambda (x) (println (car x))))                              //
+//      (display (+ banana 1)))                                               //
+// (set! 'banana (lambda (x) (display (car x))))                              //
 // (banana (cons 1 (cons 2 NIL)))                                             //
 //----------------------------------------------------------------------------//
 //  Proper documentation will follow once this is more standardised and stable//
@@ -70,7 +70,7 @@
 // Decrease reference count - Free memory if no references left
 #define RELEASE(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE(_val); }}
 #define RELEASE_ENV(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE_ENV(_val); }}
-#define __SET(XX,val,e) {cell_base_t* v = val; sb_push(e->keys, XX); sb_push(e->vals, v); RETAIN(v);}
+#define __SET(XX,val,e) {cell_t* v = val; sb_push(e->keys, XX); sb_push(e->vals, v); RETAIN(v);}
 // Set a value to a given name-hash (prefer SET)
 #define _SET(XX,val)  __SET(XX,val,env)
 // Set a value to a given name
@@ -92,28 +92,37 @@
 // Push a value onto a list
 #define PUSH_BACK(list, val)						\
   {									\
-      list_t* l = list;							\
+      cell_t* l = list;							\
       while(NOT_NIL(CAR(l)))						\
       {									\
-	if(CDR(l) == NIL) l->pair.cdr = LIST();				\
-	l = CDR(l);							\
+	  if(IS_NIL(CDR(l))) l->pair.cdr = LIST();			\
+	  l = CDR(l);							\
       }									\
       l->pair.car = val;						\
   }
 
 #define NOT_NIL(x) ((x != NULL) && ((x) != NIL))
+#define IS_NIL(x) (!NOT_NIL(x))
 
 #define CAR(x)   ((NOT_NIL(x) && (x)->t == LIST) ? ((x)->pair.car) : NIL)
 #define CDR(x)   ((NOT_NIL(x) && (x)->t == LIST) ? ((x)->pair.cdr) : NIL)
 #define CADR(x ) (CAR(CDR(x)))
 #define CADDR(x) (CAR(CDR(CDR(x))))
-#define CDDR(x) (CDR(CDR(x)))
+#define CDDR(x)  (CDR(CDR(x)))
 
 //----------------------------------------------------------------------------//
 // Types                                                                      //
 //----------------------------------------------------------------------------//
 // Symbols in this lisp are just a standard C null terminated string
-typedef char* sym_t;
+typedef char *sym_t;
+
+#if _WIN64 || __x86_64__
+typedef long long number_t;
+#define ATON(x) atoll(x)
+#else
+typedef int number_t;
+#define ATON(x) atoi(x)
+#endif
 
 // Simple reference counting setup, use REFCOUNT to use
 typedef struct
@@ -133,23 +142,23 @@ typedef enum
     FUNC,// C fn
     QUOT,// '
     STRING,// string value
-    OUTPUT_PORT,
-    INPUT_PORT,
+
+    MAX_TYPE,
 } cell_type;
 
 // C function pointer
 struct _env_t;
-struct cell_base_t;
-typedef struct _cell_base_t* (*func)(struct _cell_base_t*, struct _env_t* env);
+struct cell_t;
+typedef struct _cell_t* (*func)(struct _cell_t*, struct _env_t* env);
 
 typedef struct _pair_t
 {
-    struct _cell_base_t* car;
-    struct _cell_base_t* cdr;
+    struct _cell_t* car;
+    struct _cell_t* cdr;
 } pair_t;
 
 // base type for all cells - handles type lookup
-typedef struct _cell_base_t
+typedef struct _cell_t
 {
     REFCOUNT;
     cell_type t;
@@ -158,14 +167,14 @@ typedef struct _cell_base_t
 	sym_t sym;
 	int val;
 	func func;
-	struct _cell_base_t* inner;
+	struct _cell_t* inner;
 	pair_t pair;
     };
     struct _env_t* env; // do not like having this here
-} cell_base_t, cell_t, list_t, *ast_t;
+} cell_t, cell_t, *ast_t;
 
 
-void Free(cell_base_t** cell);
+void Free(cell_t** cell);
 void FreeEnv(struct _env_t** env);
 
 // Environment/scope, a simple hashmap lookup, with ability to have children
@@ -173,17 +182,17 @@ typedef struct _env_t
 {
     REFCOUNT;
     int*           keys;
-    cell_base_t**  vals;
+    cell_t**  vals;
     struct _env_t* _parent;
 } *env_t;
 
 //----------------------------------------------------------------------------//
 // Static types                                                               //
 //----------------------------------------------------------------------------//
-cell_base_t* NIL;
-cell_base_t* T;
-cell_base_t* F;
-cell_base_t* COMMENT;
+cell_t* NIL;
+cell_t* T;
+cell_t* F;
+cell_t* COMMENT;
 
 //----------------------------------------------------------------------------//
 // Utility functions                                                          //
@@ -202,13 +211,13 @@ int hash(const char* str)
 }
 
 // Reading file
-char* read_file_text(const char* fname)
+sym_t read_file_text(const sym_t fname)
 {
   FILE* fp = fopen(fname, "r");
   fseek(fp, 0L, SEEK_END);
   long size = ftell(fp);
   fseek(fp, 0L, SEEK_SET);
-  char* buffer=malloc(size + 1);
+  sym_t buffer=malloc(size + 1);
   fread(buffer, 1, size, fp);
   buffer[size] = '\0';
   fclose(fp);
@@ -232,11 +241,11 @@ int ___i = 0;
 int ___t = 0;
 int ___r = 0;
 // Create a new cell
-cell_base_t* _cell(cell_type t, void* val)
+cell_t* _cell(cell_type t, void* val)
 {
     ++___i;
     ++___t;
-    cell_base_t* cell = malloc(sizeof(cell_t));
+    cell_t* cell = malloc(sizeof(cell_t));
     memset(cell, 0, sizeof(cell_t));
     cell->t = t;
     
@@ -251,7 +260,7 @@ cell_base_t* _cell(cell_type t, void* val)
     }
     else if(t == VAL)
     {
-	cell->val = (int)val;
+	cell->val = (number_t)val;
     }
     else if(t == STRING || t == SYM)
     {
@@ -267,7 +276,7 @@ cell_base_t* _cell(cell_type t, void* val)
 }
 
 // Retrieve a hashed, named cell from the current scope
-cell_base_t* Get(env_t env, int hash)
+cell_t* Get(env_t env, int hash)
 {
     for(int i = 0; i < sb_count(env->keys); ++i)
     {
@@ -319,8 +328,8 @@ static void str_copy_escaped(char* dest, const char* src, int len) {
 // Parse an expression into a list, returns a pointer to the end
 // of the expression
 const char* STRING_TERMINALS = "\n\"\0";
-const char* ParseList(list_t* list, const char* expr);
-const char* ParseToken(cell_base_t** cell, const char* expr)
+const char* ParseList(cell_t* list, const char* expr);
+const char* ParseToken(cell_t** cell, const char* expr)
 {
     const char* pTokStart = expr;
     const char* pTokEnd = pTokStart + 1;
@@ -377,17 +386,26 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
       while(*pTokEnd != '\n' && *pTokEnd !=0) ++pTokEnd;
       *cell = COMMENT;
       return pTokEnd;
+    case '#':
+    {
+	cell_t* datum = NIL;
+	pTokEnd = ParseToken(&datum, pTokEnd);
+	RELEASE(datum); // this one has been commented out
+	*cell = COMMENT;
+	return pTokEnd;
+    }
     }
 
     if( (*pTokStart >= '0' && *pTokStart <= '9') || *pTokStart == '-' )
     {
+      // TODO: Proper number parsing - allow different bases etc
 	while((*pTokEnd >= '0' && *pTokEnd <= '9') || *pTokEnd == '.')
 	    ++pTokEnd;
 	int len = pTokEnd - pTokStart;
 	char* sym = malloc(len + 1);
 	memcpy(sym, pTokStart, len);
 	sym[len] = 0;
-	*cell = CELL(VAL, atoi(sym));
+	*cell = CELL(VAL, ATON(sym));
 	free(sym);
 	return pTokEnd;
     }
@@ -407,7 +425,7 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
     return pTokEnd;
 }
 
-const char* ParseList(list_t* list, const char* expr)
+const char* ParseList(cell_t* list, const char* expr)
 {
     const char* pTokStart = expr;
 
@@ -423,7 +441,7 @@ const char* ParseList(list_t* list, const char* expr)
     while(1)
     {
 	SKIP_WHITESPACE(pTokStart);
-	cell_base_t* cell = NIL;
+	cell_t* cell = NIL;
 	pTokEnd = ParseToken(&cell, pTokStart);
 
 	if(cell != COMMENT)
@@ -449,7 +467,7 @@ ast_t Parse(const char* expr)
 }
 
 // Evaluate a list and return the result
-cell_base_t* Eval(cell_base_t* cell, env_t env)
+cell_t* Eval(cell_t* cell, env_t env)
 {
     // if the value is quoted, don't evaluate it
     if(cell->t == QUOT)
@@ -459,7 +477,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 
     if(cell->t == LIST)
     {
-	cell_base_t* fn = Eval(CAR(cell), env);
+	cell_t* fn = Eval(CAR(cell), env);
 	switch(fn->t)
 	{
 	case FUNC:
@@ -469,12 +487,12 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 	}
 	case FUNL:
 	{
-	    cell_base_t* params = CDR(cell);
+	    cell_t* params = CDR(cell);
 
 	    if(params->t == LIST)
 	    {
-	        cell_base_t* name = fn->pair.car;
-		cell_base_t* val = params;
+	        cell_t* name = fn->pair.car;
+		cell_t* val = params;
 
 		env_t scope = ENV();
 		RETAIN(scope);
@@ -488,7 +506,7 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 		    val = CDR(val);
 		}
 
-		cell_base_t* res = NIL;
+		cell_t* res = NIL;
 		fn = fn->pair.cdr;
 		while(NOT_NIL(CAR(fn)))
 		{
@@ -515,26 +533,32 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
     return cell;
 }
 
-cell_base_t* ParseLisp(cell_base_t* cell, env_t env)
+cell_t* lisp_parse(cell_t* cell, env_t env)
 {
     cell = Eval(cell, env);
+    RETAIN(cell);
     ast_t ast = LIST();
     if(cell->t == STRING)
     {
 	ParseList(ast, cell->sym);
     }
+    RELEASE(cell);
     return ast;
 }
 
 // Cleanup memory from an unused cell
-void Free(cell_base_t** cell)
+void Free(cell_t** cell)
 {
-    if(*cell == NIL || *cell == T || *cell == F) return; // don't free these
+    if(*cell == NIL || *cell == T || *cell == F || (*cell)->t > MAX_TYPE) return; // don't free these
     switch((*cell)->t)
     {
     case STRING:
     case SYM:
-	free((*cell)->sym);
+	if((*cell)->sym)
+	{
+	    free((*cell)->sym);
+	    (*cell)->sym = NULL;
+	}
 	break;
     case LIST:
     {
@@ -553,10 +577,13 @@ void Free(cell_base_t** cell)
     case BOOL:
     case NUM:
     case FUNC:
+    case MAX_TYPE:
       break; // these don't have any additional memory allocated
     }
     ___i--;
     ++___r;
+
+    (*cell)->t = MAX_TYPE;
     free(*cell);
     *cell = NIL;
 }
@@ -573,7 +600,7 @@ void FreeEnv(env_t* env)
 }
 
 // Replace a value in memory if the name already exists
-cell_base_t* Replace(env_t env, int hash, cell_base_t* val)
+cell_t* Replace(env_t env, int hash, cell_t* val)
 {
     env_t scope = env;
     while(scope)
@@ -597,9 +624,9 @@ cell_base_t* Replace(env_t env, int hash, cell_base_t* val)
 //----------------------------------------------------------------------------//
 // Lisp standard functions                                                    //
 //----------------------------------------------------------------------------//
-cell_base_t* str(cell_base_t* cell, env_t env)
+cell_t* str(cell_t* cell, env_t env)
 {
-    cell_base_t* val = Eval(cell, env);
+    cell_t* val = Eval(cell, env);
     char* buff = NULL;
     switch(val->t)
     {
@@ -614,7 +641,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 	    sprintf(buff, "%d", val->val);
 	else
 	    sprintf(buff, "NIL");
-	cell_base_t* res = CELL(STRING, buff);
+	cell_t* res = CELL(STRING, buff);
 	free(buff);
 	return res;
     }
@@ -652,7 +679,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 
 	char* strbuf = malloc(p+2);
 	memcpy(strbuf, buff, p+2);
-	cell_base_t* res = CELL(STRING, strbuf);
+	cell_t* res = CELL(STRING, strbuf);
 	sb_free(buff);
 	free(strbuf);
 	return res;
@@ -662,53 +689,54 @@ cell_base_t* str(cell_base_t* cell, env_t env)
     case FUNL:
     case FUNC:
     case QUOT:
+    case MAX_TYPE:
 	break;
     };
     return NIL;
 }
 
 // Print list with newline
-cell_base_t* println(cell_base_t* cell, env_t env)
+cell_t* display(cell_t* cell, env_t env)
 {
-    cell_base_t* res = str(cell, env);
+    cell_t* res = str(cell, env);
     printf("%s", res->sym);
     return NIL;
 }
 
 // arithemetic summation of all parameters
-cell_base_t* plus(cell_base_t* cell, env_t env)
+cell_t* plus(cell_t* cell, env_t env)
 {
-    int val = 0;
+    number_t val = 0;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
-	cell_base_t* res = Eval(CAR(cell), env);
+	cell_t* res = Eval(CAR(cell), env);
 	if(res->t == SYM || res->t == STRING)
 	{
-	    val += atoi(((cell_t*)res)->sym);
+	    val += ATON(res->sym);
 	}
 	else if( res->t == VAL)
 	{
-	    val += ((cell_t*)res)->val;
+	    val += res->val;
 	}
 	cell = CDR(cell);
     }
     return CELL( VAL, val );
 }
 
-cell_base_t* sub(cell_base_t* cell, env_t env)
+cell_t* sub(cell_t* cell, env_t env)
 {
-    int val = 0;
+    number_t val = 0;
     int first = 1;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
-	cell_base_t* res = Eval(CAR(cell), env);
+	cell_t* res = Eval(CAR(cell), env);
 	if(res->t == SYM || res->t == STRING)
 	{
-	    val-= atoi(((cell_t*)res)->sym);
+	    val-= ATON(res->sym);
 	}
 	else if( res->t == VAL)
 	{
-	    val -= ((cell_t*)res)->val;
+	    val -= res->val;
 	}
 
 	if( first )
@@ -722,12 +750,12 @@ cell_base_t* sub(cell_base_t* cell, env_t env)
 }
 
 // set named variable
-cell_base_t* set(cell_base_t* cell, env_t env)
+cell_t* set(cell_t* cell, env_t env)
 {
-    cell_base_t* name = Eval(CAR(cell), env);
+    cell_t* name = Eval(CAR(cell), env);
     if( NOT_NIL(name) && name->t == SYM)
     {
-	cell_base_t* val = Eval(CADR(cell), env);
+	cell_t* val = Eval(CADR(cell), env);
 
 	int namehash = hash(name->sym);
 	while(env != NULL)
@@ -749,28 +777,29 @@ cell_base_t* set(cell_base_t* cell, env_t env)
     return NIL;
 }
 
-cell_base_t* define(cell_base_t* cell, env_t env)
+cell_t* define(cell_t* cell, env_t env)
 {
-    cell_base_t* name = Eval(CAR(cell), env);
+    cell_t* name = Eval(CAR(cell), env);
     if( NOT_NIL(name) && name->t == SYM)
     {
-	cell_base_t* val = Eval(CADR(cell), env);
+	cell_t* val = Eval(CADR(cell), env);
 	RETAIN(val);
 	REPLACE(name->sym, val);
     }
     return NIL;
 }
 
-cell_base_t* concat(cell_base_t* cell, env_t env)
+cell_t* concat(cell_t* cell, env_t env)
 {
     char* val = NULL;
     val = sb_add(val,1);
     val[0] = 0;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
-	cell_base_t* res = str(CAR(cell), env);
+	cell_t* res = str(CAR(cell), env);
 	int len = strlen(res->sym)+1;
-	sb_add(val, len);
+	char* pVal = sb_add(val, len);
+	if(pVal == NULL) break;
 	// using sprintf to repeatedly concatenate
 	// because it means I don't have to worry about null terminators
 	sprintf(val, "%s%s", val, res->sym);
@@ -781,28 +810,28 @@ cell_base_t* concat(cell_base_t* cell, env_t env)
     return cell;   
 }
 
-cell_base_t* cons(cell_base_t* cell, env_t env)
+cell_t* cons(cell_t* cell, env_t env)
 {
-    list_t* lst = LIST();
+    cell_t* lst = LIST();
     lst->pair.car = Eval(CAR(cell), env);
     lst->pair.cdr = Eval(CDR(cell), env);
-    return (cell_base_t*)lst;
+    return (cell_t*)lst;
 }
   
 
-cell_base_t* car( cell_base_t* cell, env_t env)
+cell_t* car( cell_t* cell, env_t env)
 {
     cell = Eval(cell, env);
     return CAR(cell);
 }
 
-cell_base_t* cdr( cell_base_t* cell, env_t env)
+cell_t* cdr( cell_t* cell, env_t env)
 {
     cell = Eval(cell, env);
     cell = CDR(cell);
     if(cell->t == LIST &&
-       !NOT_NIL(CAR(cell)) &&
-       !NOT_NIL(CDR(cell)))
+       IS_NIL(CAR(cell)) &&
+       IS_NIL(CDR(cell)))
       // If we're at the end of a list, this is
       // provided by (NIL . NIL) but we don't want
       // CDR to return this, so instead just return NIL
@@ -811,13 +840,13 @@ cell_base_t* cdr( cell_base_t* cell, env_t env)
 }
 
 // define a lisp function
-cell_base_t* lambda(cell_base_t* cell, env_t env)
+cell_t* lambda(cell_t* cell, env_t env)
 {
     {
 	cell_t* val = FUNL();
 	if(cell->t == LIST)
 	{
-	    list_t* list = (list_t*)cell;
+	    cell_t* list = cell;
 	    val->pair.car = CAR(list);
 	    val->pair.cdr = CDR(list);
 	    RETAIN(env);
@@ -828,10 +857,10 @@ cell_base_t* lambda(cell_base_t* cell, env_t env)
     return NIL;
 }
 
-cell_base_t* less(cell_base_t* cell, env_t env)
+cell_t* less(cell_t* cell, env_t env)
 {
-    cell_base_t* val1 = Eval(CAR(cell), env);
-    cell_base_t* val2 = Eval(CADR(cell), env);
+    cell_t* val1 = Eval(CAR(cell), env);
+    cell_t* val2 = Eval(CADR(cell), env);
 
     int v1 = val1->t == SYM || val1->t == STRING ? atoi(((cell_t*)val1)->sym) : ((cell_t*)val1)->val;
     int v2 = val2->t == SYM || val2->t == STRING ? atoi(((cell_t*)val2)->sym) : ((cell_t*)val2)->val;
@@ -839,16 +868,16 @@ cell_base_t* less(cell_base_t* cell, env_t env)
     return v1 < v2 ? T : F;
 }
 
-cell_base_t* not(cell_base_t* cell, env_t env)
+cell_t* not(cell_t* cell, env_t env)
 {
-    cell_base_t* v = Eval(cell, env);
+    cell_t* v = Eval(cell, env);
 
     return (v == F || v == NIL) ? T : F;
 }
 
-cell_base_t* lisp_if(cell_base_t* cell, env_t env)
+cell_t* lisp_if(cell_t* cell, env_t env)
 {    
-    cell_base_t* test = Eval(CAR(cell), env);
+    cell_t* test = Eval(CAR(cell), env);
     if( test && test != NIL && test != F && ((cell_t*)test)->val != 0)
     {
 	return Eval(CADR(cell), env);
@@ -856,9 +885,9 @@ cell_base_t* lisp_if(cell_base_t* cell, env_t env)
     return Eval(CADDR(cell), env);
 }
 
-cell_base_t* lisp_read_file_text(cell_base_t* cell, env_t env)
+cell_t* lisp_read_file_text(cell_t* cell, env_t env)
 {
-    cell_base_t* nameval = Eval(cell, env);
+    cell_t* nameval = Eval(cell, env);
     char* namestr = ((cell_t*)nameval)->sym;
 
     char* contentstr = read_file_text(namestr);
@@ -866,16 +895,16 @@ cell_base_t* lisp_read_file_text(cell_base_t* cell, env_t env)
     // do a bit of juggling here - we want the cell to own the string
     // but we don't want to have to copy it, so instead, initialise with
     // empty string, then re-free it and swap our content in
-    cell_base_t* res = CELL(STRING, "");
+    cell_t* res = CELL(STRING, "");
     free(res->sym);
     res->sym = contentstr;
     return res;
 }
 
-cell_base_t* lisp_while(cell_base_t* cell, env_t env)
+cell_t* lisp_while(cell_t* cell, env_t env)
 {
-    cell_base_t* test = Eval(CAR(cell), env);
-    cell_base_t* ret = NIL;
+    cell_t* test = Eval(CAR(cell), env);
+    cell_t* ret = NIL;
     
     while( NOT_NIL(test) && test != F && ((cell_t*)test)->val != 0)
     {
@@ -885,13 +914,13 @@ cell_base_t* lisp_while(cell_base_t* cell, env_t env)
     return ret;
 }
 
-void print_cell(cell_base_t* cell)
+void print_cell(cell_t* cell)
 {
     static int depth = 0;
 
     for(int i = 0; i < depth; ++i) printf(" ");
 
-    if(!NOT_NIL(cell))
+    if(IS_NIL(cell))
     {
 	printf("NIL\n");
 	return;
@@ -933,22 +962,28 @@ void print_cell(cell_base_t* cell)
     case STRING:
 	printf("S:\"%s\"\n", cell->sym);
 	break;
+    default:
+      printf("UNKNOWN\n");
+      break;
     }
 }
 
-cell_base_t* print_cell_lisp(cell_base_t* cell, env_t env)
+cell_t* lisp_print_cell(cell_t* cell, env_t env)
 {
     cell = Eval(cell, env);
     print_cell(cell);
     return NIL;
 }
 
-cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
+cell_t* lisp_eval(cell_t* cell, env_t env)
 {
     // the first eval is to prepare the param
-    cell = Eval(cell, env);
+    cell_t* list = Eval(cell, env);
+    cell = list;
+    RETAIN(list);
+    PUSH_BACK(GET("__e"), list)
     // then actually eval what requested
-    cell_base_t* res = NIL;
+    cell_t* res = NIL;
     while( NOT_NIL(cell) )
     {
 	res = Eval( cell, env );
@@ -957,11 +992,36 @@ cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
     return res;
 }
 
-cell_base_t* cond(cell_base_t* cell, env_t env)
+cell_t* global(cell_t* cell, env_t env)
+{
+    cell_t* res = NIL;
+    while( NOT_NIL(cell) )
+    {
+	res = Eval( cell, env );
+	cell = CDR(cell);
+    }
+
+    env_t g = env;
+    while(g->_parent != NULL) g = g->_parent;
+
+    for(int i = 0; i < sb_count(env->keys); ++i)
+    {
+	Replace(g, env->keys[i], env->vals[i]);
+	// This env has been brought into the global scope so the entries in here should be dropped - this is
+	// in case something in a child scope accesses them as well as something in the global scope - if they
+	// get overwritten in the global scope, the change won't be detected by the child scope
+	env->keys[i] = 0;
+	env->vals[i] = NIL;
+    }
+    
+    return res;
+}
+
+cell_t* cond(cell_t* cell, env_t env)
 {
     while(NOT_NIL(cell))
     {
-	cell_base_t* test = Eval(CAR(CAR(cell)), env);
+	cell_t* test = Eval(CAR(CAR(cell)), env);
 	if(test == T)
 	{
 	    return Eval(CADR(CAR(cell)), env);
@@ -971,16 +1031,16 @@ cell_base_t* cond(cell_base_t* cell, env_t env)
     return NIL;
 }
 
-cell_base_t* let(cell_base_t* cell, env_t env)
+cell_t* let(cell_t* cell, env_t env)
 {
     env_t scope = ENV();
     scope->_parent = env;
     RETAIN(scope);
-    cell_base_t* values = CAR(cell);
+    cell_t* values = CAR(cell);
     while(NOT_NIL(values))
     {
-	cell_base_t* name = CAR(CAR(values));
-	cell_base_t* value = Eval(CDR(CAR(values)), env);
+	cell_t* name = CAR(CAR(values));
+	cell_t* value = Eval(CDR(CAR(values)), env);
 //	RETAIN(value);
 	if(NOT_NIL(name))
 	{
@@ -989,7 +1049,7 @@ cell_base_t* let(cell_base_t* cell, env_t env)
 	
 	values = CDR(values);
     }
-    cell_base_t* res = NIL;
+    cell_t* res = NIL;
     cell = CDR(cell);
     while(NOT_NIL(cell))
     {
@@ -1001,9 +1061,9 @@ cell_base_t* let(cell_base_t* cell, env_t env)
     return res;
 }
 
-cell_base_t* string_equals(cell_base_t* cell, env_t env)
+cell_t* string_equals(cell_t* cell, env_t env)
 {
-  cell_base_t* test = Eval(CAR(cell), env);
+  cell_t* test = Eval(CAR(cell), env);
   if(test->t != SYM && test->t != STRING)
     return NIL;
   cell = CDR(cell);
@@ -1011,7 +1071,7 @@ cell_base_t* string_equals(cell_base_t* cell, env_t env)
   {
     if(CAR(cell) == NIL) break;
     
-    cell_base_t* val = Eval(CAR(cell), env);
+    cell_t* val = Eval(CAR(cell), env);
     if(val->t != SYM && val->t != STRING)
       return NIL;
 
@@ -1024,11 +1084,11 @@ cell_base_t* string_equals(cell_base_t* cell, env_t env)
   return T;
 }
 
-cell_base_t* substr(cell_base_t* cell, env_t env)
+cell_t* substr(cell_t* cell, env_t env)
 {
-  cell_base_t* string = str(CAR(cell), env);
-  cell_base_t* start = Eval(CADR(cell), env);
-  cell_base_t* end = Eval(CADDR(cell), env);
+  cell_t* string = str(CAR(cell), env);
+  cell_t* start = Eval(CADR(cell), env);
+  cell_t* end = Eval(CADDR(cell), env);
 
   if(string->t != SYM && string->t != STRING) return NIL;
   if(start->t != VAL) return NIL;
@@ -1052,25 +1112,28 @@ cell_base_t* substr(cell_base_t* cell, env_t env)
 }
 
 #define DEFINE_PREDICATE(name, type)					\
-  cell_base_t* name##_predicate(cell_base_t *cell, env_t env)		\
+  cell_t* name##_predicate(cell_t *cell, env_t env)		\
   {									\
     cell = Eval(cell, env);						\
     return cell->t == type ? T : F;					\
   }
 #define DECLARE_PREDICATE(name)			\
   SET(#name"?", CELL(FUNC, name##_predicate));
+#define DECLARE_FUNC(sym, name)			\
+  SET(sym, CELL(FUNC, name))
 
 DEFINE_PREDICATE(list, LIST);
 DEFINE_PREDICATE(symbol, SYM);
 DEFINE_PREDICATE(string, STRING);
 DEFINE_PREDICATE(value, VAL);
 
-cell_base_t* is_nil(cell_base_t* cell, env_t env)
+
+cell_t* is_nil(cell_t* cell, env_t env)
 {
     return NOT_NIL(Eval(cell, env)) ? F : T;
 }
 
-cell_base_t* file_exists_p(cell_base_t* cell, env_t env)
+cell_t* file_exists_p(cell_t* cell, env_t env)
 {
     cell = str(cell, env);
     struct stat st;
@@ -1078,47 +1141,58 @@ cell_base_t* file_exists_p(cell_base_t* cell, env_t env)
     return s == 0 ? T : F;
 }
 
+cell_t* newline(cell_t* cell, env_t env)
+{
+  UNUSED(cell);
+  UNUSED(env);
+  printf("\n");
+  return NIL;
+}
+
 // main entry point
 int main(int argc, char** argv)
 {
   env_t env = ENV();
-    SET("print-cell", CELL(FUNC, print_cell_lisp));
-    SET("display", CELL(FUNC, println));
-    SET("+", CELL( FUNC, plus));
-    SET("cons", CELL( FUNC, cons));
-    SET("car", CELL( FUNC, car));
-    SET("cdr", CELL( FUNC, cdr));
-    SET("-", CELL( FUNC, sub));
-    SET("<", CELL( FUNC, less));
-    SET("not", CELL( FUNC, not));
-    SET("if", CELL( FUNC, lisp_if));
-    SET("define", CELL( FUNC, define));
-    SET("set!", CELL( FUNC, set));
-    SET("lambda", CELL( FUNC, lambda));
-    SET("read-file-text", CELL( FUNC, lisp_read_file_text));
-    SET("eval", CELL( FUNC, lisp_eval));
-    SET("while", CELL( FUNC, lisp_while));
-    SET("parse", CELL(FUNC, ParseLisp));
-    SET("concat", CELL(FUNC, concat));
-    SET("cond", CELL(FUNC, cond));
-    SET("let", CELL(FUNC, let));
-    SET("string=?", CELL(FUNC, string_equals));
-    SET("substr", CELL(FUNC, substr));
-    SET("nil?", CELL(FUNC, is_nil));
-    SET("file-exists?", CELL(FUNC, file_exists_p));
+    DECLARE_FUNC("print-cell", lisp_print_cell);
+    DECLARE_FUNC("display", display);
+    DECLARE_FUNC("newline", newline);
+    DECLARE_FUNC("+", plus);
+    DECLARE_FUNC("cons", cons);
+    DECLARE_FUNC("car", car);
+    DECLARE_FUNC("cdr", cdr);
+    DECLARE_FUNC("-", sub);
+    DECLARE_FUNC("<", less);
+    DECLARE_FUNC("not", not);
+    DECLARE_FUNC("if", lisp_if);
+    DECLARE_FUNC("define", define);
+    DECLARE_FUNC("set!", set);
+    DECLARE_FUNC("lambda", lambda);
+    DECLARE_FUNC("read-file-text", lisp_read_file_text);
+    DECLARE_FUNC("eval", lisp_eval);
+    DECLARE_FUNC("while", lisp_while);
+    DECLARE_FUNC("parse", lisp_parse);
+    DECLARE_FUNC("concat", concat);
+    DECLARE_FUNC("cond", cond);
+    DECLARE_FUNC("let", let);
+    DECLARE_FUNC("string=?", string_equals);
+    DECLARE_FUNC("substr", substr);
+    DECLARE_FUNC("nil?", is_nil);
+    DECLARE_FUNC("file-exists?", file_exists_p);
+    DECLARE_FUNC("global", global);
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);
     DECLARE_PREDICATE(value);
 
-    cell_base_t* args = LIST();
+    cell_t* args = LIST();
     for(int i = 0; i < argc; ++i)
     {
-	cell_base_t* arg = CELL(STRING, argv[i]);
+	cell_t* arg = CELL(STRING, argv[i]);
 	PUSH_BACK(args, arg);
     }
     SET("args", args);
-
+    SET("__e", LIST())
+    
     
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);
@@ -1130,7 +1204,7 @@ int main(int argc, char** argv)
     SET("nil", NIL);
 
     ast_t ast = Parse("(eval (parse (read-file-text \"stage0.yl\")))");
-    cell_base_t* cell = (cell_base_t*)ast;
+    cell_t* cell = (cell_t*)ast;
 
     // set the ast to be available in lisp in case we want it
     SET("ast", ast);

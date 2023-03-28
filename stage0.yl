@@ -18,7 +18,6 @@
 
 (eval (parse (read-file-text "src/stage0/stage0.yl")))
 
-
 (let ((FILE (cadr (command-line))))
   ;; Remove the interpreter from the front of the args list
   ;; This will have the affect of making it seem like the program

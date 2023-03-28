@@ -17,7 +17,7 @@
 ;; 3. This notice may not be removed or altered from any source distribution.
 
 (define 'eval--internal eval)
-(define 'eval (lambda (x) (eval--internal (parse x))))
+(define 'eval (lambda (x) (global (eval--internal (parse x)))))
 
 (define 'cadr (lambda (x) (car (cdr x))))
 
@@ -49,5 +49,3 @@
 			    (let ((prev-command-line command-line))
 			      (set! 'command-line (lambda ()
 						    (cdr (prev-command-line)))))))
-
-(define 'newline (lambda () (display "\n")))
