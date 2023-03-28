@@ -18,5 +18,10 @@
 
 (eval (parse (read-file-text "src/stage0/stage0.yl")))
 
-(let ((FILE (car (cdr args))))
-   (eval (read-file-text FILE)))
+
+(let ((FILE (cadr (command-line))))
+  ;; Remove the interpreter from the front of the args list
+  ;; This will have the affect of making it seem like the program
+  ;; being run within it to be the executed program
+  (command-line-pop)
+  (eval (read-file-text FILE)))

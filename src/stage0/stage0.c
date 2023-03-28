@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 // using stretchy buffers from nothings.org as it's a perfectly good
 // minimal solution, and I don't want to rewrite _everything_ from scratch
@@ -132,6 +133,8 @@ typedef enum
     FUNC,// C fn
     QUOT,// '
     STRING,// string value
+    OUTPUT_PORT,
+    INPUT_PORT,
 } cell_type;
 
 // C function pointer
@@ -371,7 +374,7 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
 	return pTokEnd;
     case ';':
       // scan to the end of the line
-      while(*pTokEnd != '\n') ++pTokEnd;
+      while(*pTokEnd != '\n' && *pTokEnd !=0) ++pTokEnd;
       *cell = COMMENT;
       return pTokEnd;
     }
@@ -607,7 +610,10 @@ cell_base_t* str(cell_base_t* cell, env_t env)
     case VAL:
     {
 	buff = malloc(128);
-	sprintf(buff, "%d", val->val);
+	if(NOT_NIL(val))
+	    sprintf(buff, "%d", val->val);
+	else
+	    sprintf(buff, "NIL");
 	cell_base_t* res = CELL(STRING, buff);
 	free(buff);
 	return res;
@@ -665,7 +671,7 @@ cell_base_t* str(cell_base_t* cell, env_t env)
 cell_base_t* println(cell_base_t* cell, env_t env)
 {
     cell_base_t* res = str(cell, env);
-    printf("%s\n", res->sym);
+    printf("%s", res->sym);
     return NIL;
 }
 
@@ -723,13 +729,34 @@ cell_base_t* set(cell_base_t* cell, env_t env)
     {
 	cell_base_t* val = Eval(CADR(cell), env);
 
-	// set should apply globally, not to the local scope,
-	// so step back up to the global scope and store the
-	// value there
-	while(env->_parent != NULL) env = env->_parent;
-	
-	REPLACE(((cell_t*)name)->sym, val);
+	int namehash = hash(name->sym);
+	while(env != NULL)
+	{
+	    for(int i = 0; i < sb_count(env->keys); ++i)
+	    {
+		if(env->keys[i] == namehash)
+		{
+		    RETAIN(val);
+		    RELEASE(env->vals[i]);
+		    env->vals[i] = val;
+		    return NIL;
+		}
+		   
+	    }
+	    env = env->_parent;
+	}
+    }
+    return NIL;
+}
+
+cell_base_t* define(cell_base_t* cell, env_t env)
+{
+    cell_base_t* name = Eval(CAR(cell), env);
+    if( NOT_NIL(name) && name->t == SYM)
+    {
+	cell_base_t* val = Eval(CADR(cell), env);
 	RETAIN(val);
+	REPLACE(name->sym, val);
     }
     return NIL;
 }
@@ -954,7 +981,7 @@ cell_base_t* let(cell_base_t* cell, env_t env)
     {
 	cell_base_t* name = CAR(CAR(values));
 	cell_base_t* value = Eval(CDR(CAR(values)), env);
-	
+//	RETAIN(value);
 	if(NOT_NIL(name))
 	{
 	    __SET(hash(name->sym), value, scope);
@@ -1038,12 +1065,25 @@ DEFINE_PREDICATE(symbol, SYM);
 DEFINE_PREDICATE(string, STRING);
 DEFINE_PREDICATE(value, VAL);
 
+cell_base_t* is_nil(cell_base_t* cell, env_t env)
+{
+    return NOT_NIL(Eval(cell, env)) ? F : T;
+}
+
+cell_base_t* file_exists_p(cell_base_t* cell, env_t env)
+{
+    cell = str(cell, env);
+    struct stat st;
+    int s = stat(cell->sym, &st);
+    return s == 0 ? T : F;
+}
+
 // main entry point
 int main(int argc, char** argv)
 {
   env_t env = ENV();
     SET("print-cell", CELL(FUNC, print_cell_lisp));
-    SET("println", CELL(FUNC, println));
+    SET("display", CELL(FUNC, println));
     SET("+", CELL( FUNC, plus));
     SET("cons", CELL( FUNC, cons));
     SET("car", CELL( FUNC, car));
@@ -1052,6 +1092,7 @@ int main(int argc, char** argv)
     SET("<", CELL( FUNC, less));
     SET("not", CELL( FUNC, not));
     SET("if", CELL( FUNC, lisp_if));
+    SET("define", CELL( FUNC, define));
     SET("set!", CELL( FUNC, set));
     SET("lambda", CELL( FUNC, lambda));
     SET("read-file-text", CELL( FUNC, lisp_read_file_text));
@@ -1063,6 +1104,8 @@ int main(int argc, char** argv)
     SET("let", CELL(FUNC, let));
     SET("string=?", CELL(FUNC, string_equals));
     SET("substr", CELL(FUNC, substr));
+    SET("nil?", CELL(FUNC, is_nil));
+    SET("file-exists?", CELL(FUNC, file_exists_p));
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);

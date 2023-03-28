@@ -16,4 +16,4 @@
 ;;    misrepresented as being the original software.
 ;; 3. This notice may not be removed or altered from any source distribution.
 
-(set! 'parse-ast (lambda (file) (parse (read-file-text file))))
+(define 'parse-ast (lambda (file) (parse (read-file-text file))))

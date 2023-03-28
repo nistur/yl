@@ -1,0 +1,17 @@
+;; just a bunch of tests for things I'm currently working on
+(define 'test-var 1)
+(display test-var)
+(newline)
+
+(set! 'test-var 2)
+(display test-var)
+(newline)
+
+(let ((test-var 3))
+  (display test-var)(newline)
+  (set! 'test-var 4)
+  (display test-var)(newline))
+
+(display test-var)(newline)
+(set! 'test-foo 1)
+(display test-foo)(newline)
