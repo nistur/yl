@@ -1,0 +1,16 @@
+(define 'first-pass/symbol (lambda (node)
+			     (display node) (newline)
+			     node))
+(define 'first-pass/loop (lambda (node)
+			   (cond
+			    ((nil? node))
+			    ((list? node) (cons (first-pass/loop (car node)) (first-pass/loop (cdr node))))
+			    ((symbol? node) (first-pass/symbol node))
+			    ((string? node) (first-pass/symbol node))
+			    ((value? node) (first-pass/symbol node)))))
+
+; this doesn't work, it wasn't intended to work, I'm just checking it
+; in because I fixed other things
+(define 'first-pass (lambda (ast)
+		      #(first-pass/loop ast)))
+

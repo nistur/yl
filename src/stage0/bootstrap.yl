@@ -1,5 +1,5 @@
 (define 'eval--internal eval)
-(define 'eval (lambda (x) (eval--internal (parse x))))
+(define 'eval (lambda (x) (global (eval--internal (parse x)))))
 
 (define 'cadr (lambda (x) (car (cdr x))))
 

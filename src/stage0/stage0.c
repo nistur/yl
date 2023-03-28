@@ -68,13 +68,14 @@
       list_t* l = list;							\
       while(NOT_NIL(CAR(l)))						\
       {									\
-	if(CDR(l) == NIL) l->pair.cdr = LIST();				\
-	l = CDR(l);							\
+	  if(IS_NIL(CDR(l))) l->pair.cdr = LIST();			\
+	  l = CDR(l);							\
       }									\
       l->pair.car = val;						\
   }
 
 #define NOT_NIL(x) ((x != NULL) && ((x) != NIL))
+#define IS_NIL(x) (!NOT_NIL(x))
 
 #define CAR(x)   ((NOT_NIL(x) && (x)->t == LIST) ? ((x)->pair.car) : NIL)
 #define CDR(x)   ((NOT_NIL(x) && (x)->t == LIST) ? ((x)->pair.cdr) : NIL)
@@ -108,6 +109,8 @@ typedef enum
     STRING,// string value
     OUTPUT_PORT,
     INPUT_PORT,
+
+    MAX_TYPE,
 } cell_type;
 
 // C function pointer
@@ -350,6 +353,14 @@ const char* ParseToken(cell_base_t** cell, const char* expr)
       while(*pTokEnd != '\n' && *pTokEnd !=0) ++pTokEnd;
       *cell = COMMENT;
       return pTokEnd;
+    case '#':
+    {
+	cell_base_t* datum = NIL;
+	pTokEnd = ParseToken(&datum, pTokEnd);
+	RELEASE(datum); // this one has been commented out
+	*cell = COMMENT;
+	return pTokEnd;
+    }
     }
 
     if( (*pTokStart >= '0' && *pTokStart <= '9') || *pTokStart == '-' )
@@ -491,23 +502,29 @@ cell_base_t* Eval(cell_base_t* cell, env_t env)
 cell_base_t* ParseLisp(cell_base_t* cell, env_t env)
 {
     cell = Eval(cell, env);
+    RETAIN(cell);
     ast_t ast = LIST();
     if(cell->t == STRING)
     {
 	ParseList(ast, cell->sym);
     }
+    RELEASE(cell);
     return ast;
 }
 
 // Cleanup memory from an unused cell
 void Free(cell_base_t** cell)
 {
-    if(*cell == NIL || *cell == T || *cell == F) return; // don't free these
+    if(*cell == NIL || *cell == T || *cell == F || (*cell)->t > MAX_TYPE) return; // don't free these
     switch((*cell)->t)
     {
     case STRING:
     case SYM:
-	free((*cell)->sym);
+	if((*cell)->sym)
+	{
+	    free((*cell)->sym);
+	    (*cell)->sym = NULL;
+	}
 	break;
     case LIST:
     {
@@ -530,6 +547,8 @@ void Free(cell_base_t** cell)
     }
     ___i--;
     ++___r;
+
+    (*cell)->t = MAX_TYPE;
     free(*cell);
     *cell = NIL;
 }
@@ -771,8 +790,8 @@ cell_base_t* cdr( cell_base_t* cell, env_t env)
     cell = Eval(cell, env);
     cell = CDR(cell);
     if(cell->t == LIST &&
-       !NOT_NIL(CAR(cell)) &&
-       !NOT_NIL(CDR(cell)))
+       IS_NIL(CAR(cell)) &&
+       IS_NIL(CDR(cell)))
       // If we're at the end of a list, this is
       // provided by (NIL . NIL) but we don't want
       // CDR to return this, so instead just return NIL
@@ -861,7 +880,7 @@ void print_cell(cell_base_t* cell)
 
     for(int i = 0; i < depth; ++i) printf(" ");
 
-    if(!NOT_NIL(cell))
+    if(IS_NIL(cell))
     {
 	printf("NIL\n");
 	return;
@@ -916,7 +935,10 @@ cell_base_t* print_cell_lisp(cell_base_t* cell, env_t env)
 cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
 {
     // the first eval is to prepare the param
-    cell = Eval(cell, env);
+    cell_base_t* list = Eval(cell, env);
+    cell = list;
+    RETAIN(list);
+    PUSH_BACK(GET("__e"), list)
     // then actually eval what requested
     cell_base_t* res = NIL;
     while( NOT_NIL(cell) )
@@ -924,6 +946,27 @@ cell_base_t* lisp_eval(cell_base_t* cell, env_t env)
 	res = Eval( cell, env );
 	cell = CDR(cell);
     }
+    return res;
+}
+
+cell_base_t* global(cell_base_t* cell, env_t env)
+{
+    cell_base_t* res = NIL;
+    while( NOT_NIL(cell) )
+    {
+	res = Eval( cell, env );
+	cell = CDR(cell);
+    }
+
+    env_t g = env;
+    while(g->_parent != NULL) g = g->_parent;
+
+    for(int i = 0; i < sb_count(env->keys); ++i)
+    {
+//	RETAIN(env->vals[i])
+	Replace(g, env->keys[i], env->vals[i]);
+    }
+    
     return res;
 }
 
@@ -1076,6 +1119,7 @@ int main(int argc, char** argv)
     SET("substr", CELL(FUNC, substr));
     SET("nil?", CELL(FUNC, is_nil));
     SET("file-exists?", CELL(FUNC, file_exists_p));
+    SET("global", CELL(FUNC, global));
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);
@@ -1088,7 +1132,8 @@ int main(int argc, char** argv)
 	PUSH_BACK(args, arg);
     }
     SET("args", args);
-
+    SET("__e", LIST())
+    
     
     NIL = CELL(VAL, 0 );
     T = CELL(VAL,1);

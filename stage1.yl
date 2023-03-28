@@ -7,5 +7,6 @@
 ; load the file to be compiled
 (let ((filename (car (command-line))))
   (let ((ast (parse (read-file-text filename))))
-    (display "boo")
-    (newline)))
+    (first-pass ast)))
+
+(display "hello world")(newline)
