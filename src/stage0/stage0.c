@@ -912,7 +912,12 @@ cell_t* lisp_while(cell_t* cell, env_t env)
     
     while( NOT_NIL(test) && test != F && ((cell_t*)test)->val != 0)
     {
-        ret = Eval(CDR(cell), env);
+        cell_t* body = CDR(cell);
+        while(NOT_NIL(body))
+	{
+          ret = Eval(CAR(body), env);
+	  body = CDR(body);
+	}
 	test = Eval(CAR(cell), env);
     }
     return ret;
@@ -936,11 +941,20 @@ void print_cell(cell_t* cell)
 	printf("S:%s\n", cell->sym);
 	break;
     case LIST:
-	printf("L:\n");
-	++depth;
-	print_cell(CAR(cell));
-	print_cell(CDR(cell));
-	--depth;
+      // special case for (NIL . NIL) at the end of the list
+      // just print NIL instead
+        if(IS_NIL(CAR(cell)) && IS_NIL(CDR(cell)))
+	{
+	  printf("NIL\n");
+	}
+	else
+	{
+	  printf("L:\n");
+	  ++depth;
+	  print_cell(CAR(cell));
+	  print_cell(CDR(cell));
+	  --depth;
+	}
 	break;
     case VAL:
 	printf("V:%d\n", cell->val);

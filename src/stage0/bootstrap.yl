@@ -55,3 +55,6 @@
 			    (let ((prev-command-line command-line))
 			      (set! 'command-line (lambda ()
 						    (cdr (prev-command-line)))))))
+
+(define 'else t)
+

@@ -25,9 +25,35 @@
 ; Start our stage1 compiler
 (load-file "stage1.yl")
 
+(define 'read-file
+  (lambda (file)
+    (parse (read-file-text file))))
+
+;; This currently doesn't work for two reasons
+;; The first is that it's looking for 'load to load files, while we're currently
+;; using 'load-file. The second is that it seems to mess with memory somehow. I'm
+;; going to fix the latter and get it to work just by traversing the single file
+;; before I allow it to go free and actually insert files into the ast
+(define 'replace-load-forms
+  (lambda (ast)
+    (let ((node ast))
+      (while (not (nil? node))
+	     (cond ((list? node)
+		    (let ((car-node (replace-load-forms (car node)))
+			  (cdr-node (replace-load-forms (cdr node))))
+		      (cond ((eq? (car node) 'load)
+			     (let ((file (cadr node)))
+			       (replace-load-forms (read-file file))))
+			    (else (cons car-node cdr-node)))))
+		   (else node))
+	     (set! 'node (cdr node))))))
+
+
+
 ; load the file to be compiled
 (let ((filename (car (command-line))))
+  (display (concat "Parsing file: " filename))(newline)
   (let ((ast (parse (read-file-text filename))))
-    (first-pass ast)))
-
-(display "hello world")(newline)
+    (set! 'ast (replace-load-forms ast))
+    (print-cell ast)))
+    
