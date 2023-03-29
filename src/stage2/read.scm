@@ -33,6 +33,7 @@
   (with-peeked-char c prt
     (cond
      ((eof-object? c) (eof-object))
+     ((char-numeric? c) (read-number-from-port prt))
      ((number-prefix-char? c) (read-symbol-or-prefixed-number prt))
      ((char-starts-list? c)
         (read-char prt)
@@ -48,6 +49,9 @@
      ((char-ends-list? c) (begin (read-char prt) '()))
      (else (let ((elt (yl-read-from-port prt)))
              (cons elt (yl-read-list-elements prt)))))))
+
+(define (read-number-from-port prt)
+  (string->number (read-from-port-until char-ends-number? prt)))
 
 (define (read-symbol-or-prefixed-number prt)
   (define prefix-char (read-char prt))
@@ -116,8 +120,7 @@
 
 (let ((prt
        ;(open-input-string "   (  aff \n \tbaff  mm a fo) ooo")
-       (open-input-string "  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
-
+       (open-input-string " 12.3  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
        ))
   (display (yl-read prt))
   (newline)
