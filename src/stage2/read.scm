@@ -54,6 +54,7 @@
 (define char-starts-list? (make-char-=?-fn #\())
 (define char-ends-list? (make-char-=?-fn #\)))
 (define char-starts-string? (make-char-=?-fn #\"))
+(define quote-char? (make-char-=?-fn #\'))
 
 (define (read-from-port-until pred? prt)
   (define (inner prt)
@@ -71,10 +72,22 @@
 (define (read-symbol-from-port prt)
   (string->symbol (read-from-port-until char-ends-symbol? prt)))
 
+(define (read-number-from-port prt)
+  (string->number (read-from-port-until char-ends-number? prt)))
+
 (define (char-ends-symbol? c)
   ;; incomplete
   (or (char-whitespace? c)
       (char-starts-string? c)
+      (quote-char? c)
+      (char-starts-list? c)
+      (char-ends-list? c)))
+
+(define (char-ends-number? c)
+  ;; incomplete
+  (or (char-whitespace? c)
+      (char-starts-string? c)
+      (quote-char? c)
       (char-starts-list? c)
       (char-ends-list? c)))
 
