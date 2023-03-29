@@ -33,6 +33,7 @@
   (with-peeked-char c prt
     (cond
      ((eof-object? c) (eof-object))
+     ((number-prefix-char? c) (read-symbol-or-prefixed-number prt))
      ((char-starts-list? c)
         (read-char prt)
         (yl-read-list-elements prt))
@@ -48,6 +49,18 @@
      (else (let ((elt (yl-read-from-port prt)))
              (cons elt (yl-read-list-elements prt)))))))
 
+(define (read-symbol-or-prefixed-number prt)
+  (define prefix-char (read-char prt))
+  (with-peeked-char c prt
+    (define-values (conv end-pred?) 
+      (if (char-numeric? c)
+          (values string->number
+                  char-ends-number?)
+          (values string->symbol
+                  char-ends-symbol?)))
+    (conv (string-append (char->string prefix-char)
+                         (read-from-port-until end-pred? prt)))))
+
 (define (make-char-=?-fn a)
   (lambda (b) (char=? a b)))
 
@@ -55,6 +68,10 @@
 (define char-ends-list? (make-char-=?-fn #\)))
 (define char-starts-string? (make-char-=?-fn #\"))
 (define quote-char? (make-char-=?-fn #\'))
+
+(define (number-prefix-char? c)
+  (or (char=? #\+ c)
+      (char=? #\- c)))
 
 (define (read-from-port-until pred? prt)
   (define (inner prt)
@@ -94,12 +111,21 @@
 (define (yl-read-through-whitespace prt)
   (read-from-port-while char-whitespace? prt))
 
-(let ((prt (open-input-string "   (  aff \n \tbaff  mm a fo) ooo")))
+(define (char->string c)
+  (vector->string (vector c)))
+
+(let ((prt
+       ;(open-input-string "   (  aff \n \tbaff  mm a fo) ooo")
+       (open-input-string "  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
+
+       ))
   (display (yl-read prt))
   (newline)
   (display "'")
   (display (peek-char prt))
   (display "'")
+  (newline)
+  (display (yl-read prt))
   (newline)
   (display (yl-read prt))
   (newline)
