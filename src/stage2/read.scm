@@ -92,11 +92,7 @@
       (char-ends-list? c)))
 
 (define (yl-read-through-whitespace prt)
-  (let ((c (peek-char prt)))
-    (when (and (not (eof-object? c))
-               (char-whitespace? c))
-      (read-char prt)
-      (yl-read-through-whitespace prt))))
+  (read-from-port-while char-whitespace? prt))
 
 (let ((prt (open-input-string "   (  aff \n \tbaff  mm a fo) ooo")))
   (display (yl-read prt))
