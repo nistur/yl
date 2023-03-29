@@ -45,10 +45,10 @@
 //                                                                            //
 // available functions inside somefile.yl include, but not exclusively        //
 // (because keeping this list updated would be tedious)                       //
-// (println "banana")                                                         //
+// (display "banana")                                                         //
 // (let ((banana 1))                                                          //
-//      (println (+ banana 1)))                                               //
-// (set! 'banana (lambda (x) (println (car x))))                              //
+//      (display (+ banana 1)))                                               //
+// (set! 'banana (lambda (x) (display (car x))))                              //
 // (banana (cons 1 (cons 2 NIL)))                                             //
 //----------------------------------------------------------------------------//
 //  Proper documentation will follow once this is more standardised and stable//
@@ -641,7 +641,6 @@ cell_t* str(cell_t* cell, env_t env)
 	    sprintf(buff, "%d", val->val);
 	else
 	    sprintf(buff, "NIL");
-	sprintf(buff, "%d", val->val);
 	cell_t* res = CELL(STRING, buff);
 	free(buff);
 	return res;
