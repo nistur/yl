@@ -1,4 +1,4 @@
-;; Copyright (c) 2023 Philipp Geyer <philipp@geyer.co.uk>
+;; Copyright (c) 2023 Philipp Geyer and Isak Andersson
 ;; 
 ;; This software is provided 'as-is', without any express or implied
 ;; warranty. In no event will the authors be held liable for any damages
@@ -15,6 +15,9 @@
 ;; 2. Altered source versions must be plainly marked as such, and must not be
 ;;    misrepresented as being the original software.
 ;; 3. This notice may not be removed or altered from any source distribution.
+;; 
+;; Philipp Geyer             Isak Andersson
+;; philipp@geyer.co.uk       contact@bitpuffin.com
 
 (eval (parse (read-file-text "src/stage0/stage0.yl")))
 
