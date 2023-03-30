@@ -68,13 +68,13 @@
 #define REFCOUNT ref_t _ref;
 // Release memory
 #define FREE(v) Free(&(v))
-#define FREE_ENV(v) FreeEnv(&(v))
+#define FREE_ENV(v) FreeEnv(&(v), 0)
 // Increase reference count - hold reference to a struct
 #define RETAIN(_val) { ((ref_t*)_val)->_refCount += 1; }
 // Decrease reference count - Free memory if no references left
 #define RELEASE(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE(_val); }}
 #define RELEASE_ENV(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE_ENV(_val); }}
-#define __SET(XX,val,e) {cell_t* v = val; sb_push(e->keys, XX); sb_push(e->vals, v); RETAIN(v);}
+#define __SET(XX,v,e) {sb_push(e->keys, XX); sb_push(e->vals, v); RETAIN(v);}
 // Set a value to a given name-hash (prefer SET)
 #define _SET(XX,val)  __SET(XX,val,env)
 // Set a value to a given name
@@ -114,6 +114,8 @@
 #define CADDR(x) (CAR(CDR(CDR(x))))
 #define CDDR(x)  (CDR(CDR(x)))
 
+
+#define FORCE 1
 //----------------------------------------------------------------------------//
 // Types                                                                      //
 //----------------------------------------------------------------------------//
@@ -179,7 +181,7 @@ typedef struct _cell_t
 
 
 void Free(cell_t** cell);
-void FreeEnv(struct _env_t** env);
+void FreeEnv(struct _env_t** env, int force);
 
 // Environment/scope, a simple hashmap lookup, with ability to have children
 typedef struct _env_t
@@ -540,7 +542,7 @@ cell_t* Eval(cell_t* cell, env_t env)
 cell_t* lisp_parse(cell_t* cell, env_t env)
 {
     cell = Eval(cell, env);
-    RETAIN(cell);
+    //    RETAIN(cell);
     ast_t ast = LIST();
     if(cell->t == STRING)
     {
@@ -553,7 +555,12 @@ cell_t* lisp_parse(cell_t* cell, env_t env)
 // Cleanup memory from an unused cell
 void Free(cell_t** cell)
 {
-    if(*cell == NIL || *cell == T || *cell == F || (*cell)->t > MAX_TYPE) return; // don't free these
+    if(cell == NULL || *cell == NULL ||
+       *cell == NIL || *cell == T ||
+       *cell == F ||
+       (*cell)->t > MAX_TYPE)
+      return; // don't free these
+    
     switch((*cell)->t)
     {
     case STRING:
@@ -587,16 +594,24 @@ void Free(cell_t** cell)
     ___i--;
     ++___r;
 
+    memset(*cell, 0, sizeof(cell_t));
     (*cell)->t = MAX_TYPE;
     free(*cell);
     *cell = NIL;
 }
 
-void FreeEnv(env_t* env)
+void FreeEnv(env_t* env, int force)
 {
     for(int i = 0; i < sb_count( (*env)->vals ); ++i)
     {
-	RELEASE((*env)->vals[i]);
+        if(force)
+	{
+	  FREE((*env)->vals[i]);
+	}
+	else
+	{
+	  RELEASE((*env)->vals[i]);
+	}
     }
     sb_free((*env)->keys); sb_free((*env)->vals);
     free(*env);
@@ -632,12 +647,15 @@ cell_t* str(cell_t* cell, env_t env)
 {
     cell_t* val = Eval(cell, env);
     char* buff = NULL;
+    cell_t* res = NIL;
     switch(val->t)
     {
     case SYM:
-	return CELL(STRING, val->sym);
+        res = CELL(STRING, val->sym);
+	break;
     case STRING:
-	return val;
+	res = val;
+	break;
     case VAL:
     {
 	buff = malloc(128);
@@ -645,9 +663,9 @@ cell_t* str(cell_t* cell, env_t env)
 	    sprintf(buff, "%d", val->val);
 	else
 	    sprintf(buff, "NIL");
-	cell_t* res = CELL(STRING, buff);
+	res = CELL(STRING, buff);
 	free(buff);
-	return res;
+	break;
     }
     case LIST:
     {
@@ -661,7 +679,7 @@ cell_t* str(cell_t* cell, env_t env)
 	    char* pbuff = sb_add(buff, l+1);
 	    sprintf(pbuff-1, "%s ", strcar->sym);
 	    p += l+1;
-//	    RELEASE(strcar);
+	    //	    RELEASE(strcar);
 	    val = CDR(val);
 	}
 
@@ -683,10 +701,10 @@ cell_t* str(cell_t* cell, env_t env)
 
 	char* strbuf = malloc(p+2);
 	memcpy(strbuf, buff, p+2);
-	cell_t* res = CELL(STRING, strbuf);
+        res = CELL(STRING, strbuf);
 	sb_free(buff);
 	free(strbuf);
-	return res;
+	break;
     }
     case BOOL:
     case NUM:
@@ -696,14 +714,16 @@ cell_t* str(cell_t* cell, env_t env)
     case MAX_TYPE:
 	break;
     };
-    return NIL;
+    return res;
 }
 
 // Print list with newline
 cell_t* display(cell_t* cell, env_t env)
 {
     cell_t* res = str(cell, env);
+    RETAIN(res);
     printf("%s", res->sym);
+    RELEASE(res);
     return NIL;
 }
 
@@ -819,6 +839,8 @@ cell_t* cons(cell_t* cell, env_t env)
     cell_t* lst = LIST();
     lst->pair.car = Eval(CAR(cell), env);
     lst->pair.cdr = Eval(CDR(cell), env);
+    RETAIN(CAR(lst));
+    RETAIN(CDR(lst));
     return (cell_t*)lst;
 }
   
@@ -1222,6 +1244,7 @@ int main(int argc, char** argv)
     SET("nil", NIL);
 
     ast_t ast = Parse("(eval (parse (read-file-text \"stage0.yl\")))");
+    //ast_t ast = Parse("(eval (parse (read-file-text \"hello.yl\")))");
     cell_t* cell = (cell_t*)ast;
 
     // set the ast to be available in lisp in case we want it
@@ -1233,9 +1256,8 @@ int main(int argc, char** argv)
 	cell = CDR(cell);
     }
     
-    Free(&ast);
     Free(&COMMENT);
-    FreeEnv(&env);
+    FreeEnv(&env, FORCE);
 
     printf("Number of leaked cells:%d/%d (%luB)\n", ___i, ___t, ___i*sizeof(cell_t));
 }

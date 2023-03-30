@@ -54,6 +54,6 @@
 (let ((filename (car (command-line))))
   (display (concat "Parsing file: " filename))(newline)
   (let ((ast (parse (read-file-text filename))))
-    (set! 'ast (replace-load-forms ast))
+;    (set! 'ast (replace-load-forms ast))
     (print-cell ast)))
     
