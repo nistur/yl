@@ -19,4 +19,4 @@
 ;; Philipp Geyer             Isak Andersson
 ;; philipp@geyer.co.uk       contact@bitpuffin.com
 
-(define 'parse-ast (lambda (file) (parse (read-file-text file))))
+(define parse-ast (lambda (file) (parse (read-file-text file))))

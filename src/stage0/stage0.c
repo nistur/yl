@@ -810,13 +810,15 @@ cell_t* set(cell_t* cell, env_t env)
 
 cell_t* define(cell_t* cell, env_t env)
 {
-    cell_t* name = Eval(CAR(cell), env);
+    cell_t* name = CAR(cell);
+    RETAIN(name);
     if( NOT_NIL(name) && name->t == SYM)
     {
 	cell_t* val = Eval(CADR(cell), env);
 	RETAIN(val);
 	REPLACE(name->sym, val);
     }
+    RELEASE(name);
     return NIL;
 }
 

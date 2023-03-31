@@ -25,7 +25,7 @@
 ; Start our stage1 compiler
 (load-file "stage1.yl")
 
-(define 'read-file
+(define read-file
   (lambda (file)
     (parse (read-file-text file))))
 
@@ -34,7 +34,7 @@
 ;; using 'load-file. The second is that it seems to mess with memory somehow. I'm
 ;; going to fix the latter and get it to work just by traversing the single file
 ;; before I allow it to go free and actually insert files into the ast
-(define 'replace-load-forms
+(define replace-load-forms
   (lambda (ast)
     (let ((node ast))
       (while (not (nil? node))
@@ -58,7 +58,7 @@
 ;;    (print-cell ast)))
 
 
-(define 'c-file (concat
+(define c-file (concat
 "#include <stdio.h>
 int main(int argc, char** argv)
 {

@@ -22,4 +22,4 @@
 ; Add some additional 'standard' functionality by wrapping the little
 ; that we're providing in C.
 ; NOTE: This will replace (eval x) with the equivalent of (eval (parse x))
-(eval (parse (read-file-text "src/stage0/bootstrap.yl")))
+(eval (parse (read-file-text "src/stage0/bootstrap.yl"))))
