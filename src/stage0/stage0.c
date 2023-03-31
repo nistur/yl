@@ -231,6 +231,13 @@ sym_t read_file_text(const sym_t fname)
   return buffer;
 }
 
+void write_file_text(const sym_t fname, const sym_t content)
+{
+    FILE* fp = fopen(fname, "w");
+    fwrite(content, 1, strlen(content), fp);
+    fclose(fp);
+}
+
 //----------------------------------------------------------------------------//
 // Code starts here!                                                          //
 //----------------------------------------------------------------------------//
@@ -300,8 +307,8 @@ cell_t* Get(env_t env, int hash)
     return NIL;
 }
 
-const char* ESCAPE_CHARS = "ntr0";
-const char* ESCAPE_CHARS_CONVERTED = "\n\t\r\0";
+const char* ESCAPE_CHARS = "ntr0\"\\";
+const char* ESCAPE_CHARS_CONVERTED = "\n\t\r\0\"\\";
 static char escape_char(char c) {
     const char* loc = strchr(ESCAPE_CHARS, c);
     char esc = 'X'; // default value for debugging
@@ -333,7 +340,7 @@ static void str_copy_escaped(char* dest, const char* src, int len) {
 
 // Parse an expression into a list, returns a pointer to the end
 // of the expression
-const char* STRING_TERMINALS = "\n\"\0";
+const char* STRING_TERMINALS = "\"\0";
 const char* ParseList(cell_t* list, const char* expr);
 const char* ParseToken(cell_t** cell, const char* expr)
 {
@@ -360,7 +367,7 @@ const char* ParseToken(cell_t** cell, const char* expr)
 		++pTokEnd;
 		if (strchr(STRING_TERMINALS, *pTokEnd) != NULL) {
 		    // but not if it's the end of string
-		    break;
+//		    break;
 		}
 		++pTokEnd;
 	    } else {
@@ -927,6 +934,22 @@ cell_t* lisp_read_file_text(cell_t* cell, env_t env)
     return res;
 }
 
+cell_t* lisp_write_file_text(cell_t* cell, env_t env)
+{
+    cell_t* nameval = Eval(CAR(cell), env);
+    cell_t* contentval = Eval(CDR(cell), env);
+    RETAIN(nameval); RETAIN(contentval);
+
+    if((nameval->t == SYM || nameval->t == STRING) ||
+       (contentval->t == SYM || contentval->t == STRING))
+    {
+	write_file_text(nameval->sym, contentval->sym);
+    }
+    
+    RELEASE(contentval); RELEASE(nameval);
+    return NIL;
+}
+
 cell_t* lisp_while(cell_t* cell, env_t env)
 {
     cell_t* test = Eval(CAR(cell), env);
@@ -1189,6 +1212,20 @@ cell_t* newline(cell_t* cell, env_t env)
   return NIL;
 }
 
+cell_t* system_call(cell_t* cell, env_t env)
+{
+    cell_t* command = Eval(cell, env);
+    RETAIN(command);
+
+    int success = -1;
+    if(command->t == SYM || command->t == STRING)
+    {
+	success = system(command->sym);
+    }
+    RELEASE(command);
+    return success > 0 ? T : F;
+}
+
 // main entry point
 int main(int argc, char** argv)
 {
@@ -1208,6 +1245,7 @@ int main(int argc, char** argv)
     DECLARE_FUNC("set!", set);
     DECLARE_FUNC("lambda", lambda);
     DECLARE_FUNC("read-file-text", lisp_read_file_text);
+    DECLARE_FUNC("write-file-text", lisp_write_file_text);
     DECLARE_FUNC("eval", lisp_eval);
     DECLARE_FUNC("while", lisp_while);
     DECLARE_FUNC("parse", lisp_parse);
@@ -1219,6 +1257,7 @@ int main(int argc, char** argv)
     DECLARE_FUNC("nil?", is_nil);
     DECLARE_FUNC("file-exists?", file_exists_p);
     DECLARE_FUNC("global", global);
+    DECLARE_FUNC("system", system_call);
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);

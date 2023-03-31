@@ -51,9 +51,22 @@
 
 
 ; load the file to be compiled
-(let ((filename (car (command-line))))
-  (display (concat "Parsing file: " filename))(newline)
-  (let ((ast (parse (read-file-text filename))))
-;    (set! 'ast (replace-load-forms ast))
-    (print-cell ast)))
-    
+;;(let ((filename (car (command-line))))
+;;  (display (concat "Parsing file: " filename))(newline)
+;;  (let ((ast (parse (read-file-text filename))))
+;;    (set! 'ast (replace-load-forms ast))
+;;    (print-cell ast)))
+
+
+(define 'c-file (concat
+"#include <stdio.h>
+int main(int argc, char** argv)
+{
+  printf(\"Hello World\\n\");
+}
+"))
+
+(write-file-text "obj/stage1_generated.c" c-file)
+(system "gcc -o out/stage1 obj/stage1_generated.c")
+
+(display "Compilation complete")(newline)
