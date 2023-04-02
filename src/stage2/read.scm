@@ -91,7 +91,7 @@
     (with-peeked-char c prt
       (when (char-whitespace? c)
         (read-char prt)
-        (read-intraline-whitespace prt))))
+        (read-intraline-whitespace))))
   (define (read-escape-sequence)
     (define c (read-char prt))
     (define escapes '((#\t . #\tab)
