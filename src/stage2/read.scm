@@ -157,10 +157,6 @@
                              ("return" . #\return)
                              ("space" . #\space)
                              ("tab" . #\tab)))))
-          (display "--DEBUG--")
-          (display rest)
-          (display "--DEBUG--")
-          (newline)
           (if (= 1 (string-length rest))
               (car (string->list rest)) ; string->char
               (if chr
