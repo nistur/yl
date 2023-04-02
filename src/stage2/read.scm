@@ -63,8 +63,18 @@
      ((char-starts-string? c)
       (read-char prt)
       (read-string-from-port prt))
+     ((char=? #\' c) (read-char prt) (list 'quote (yl-read-from-port prt)))
+     ((char=? #\` c) (read-char prt) (list 'quasiquote (yl-read-from-port prt)))
+     ((char=? #\, c) (read-char prt) (read-unquote prt))
      (else
       (read-symbol-from-port prt)))))
+
+(define (read-unquote prt)
+  (with-peeked-char c prt
+    (if (char=? #\@ c)
+        (list 'unquote-splicing (let ((_ (read-char prt)))
+                                  (yl-read-from-port prt)))
+        (list 'unquote (yl-read-from-port prt)))))
 
 (define (yl-read-list-elements prt)
   (yl-read-through-whitespace prt)
@@ -258,7 +268,7 @@
 
 (let ((prt
        ;(open-input-string "   (  aff \n \tbaff  mm a fo) ooo")
-       (open-input-string " \"hello\\n \\tw\\\"o\\\"rld\" #u8(1 2 14 42)  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
+       (open-input-string " 'a `b ,@a \"hello\\n \\tw\\\"o\\\"rld\" #u8(1 2 14 42)  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
        ))
   (newline)
   (display (yl-read prt))
