@@ -56,6 +56,7 @@
      ((eof-object? c) (eof-object))
      ((char-numeric? c) (read-number-from-port prt))
      ((number-prefix-char? c) (read-symbol-or-prefixed-number prt))
+     ((hash-char? c) (read-hash-element prt))
      ((char-starts-list? c)
         (read-char prt)
         (yl-read-list-elements prt))
@@ -86,6 +87,86 @@
     (conv (string-append (char->string prefix-char)
                          (read-from-port-until end-pred? prt)))))
 
+(define (read-hash-element prt)
+  (define (bool-char? c) (or (char=? #\t c)
+                             (char=? #\f c)))
+  (define (bool-char->char c) (char=? #\t c))
+  (define number-prefix-chars (string->list "eibodx"))
+  (define (number-prefix? c) (member c number-prefix-chars))
+  (define unsigned-vector-prefix? (make-char-=?-fn #\u))
+  (define vector-start? (make-char-=?-fn #\())
+  (define char-escape-prefix? (make-char-=?-fn #\\))
+
+  (read-char prt) ; get rid of #
+  (with-peeked-char c prt
+    (cond
+     ((bool-char? c) (bool-char->char (read-char prt)))
+     ((number-prefix? c) (read-prefixed-number prt))
+     ((unsigned-vector-prefix? c) (begin (read-char prt)
+                                         (read-unsigned-vector prt)))
+     ((vector-start? c) (begin (read-char prt) (read-vector-elements prt)))
+     ((char-escape-prefix? c) (begin (read-char prt) (read-escaped-char prt))))))
+
+(define (read-prefixed-number prt)
+  (define prefix (read-char prt))
+  (string->number (string-append "#"
+                                 (list->string (list prefix))
+                                 ;; don't wanna use read-symbol... here but works for now
+                                 (symbol->string (read-symbol-from-port prt)))))
+
+(define (read-unsigned-vector prt)
+  (define size
+    (let ((c (read-char prt)))
+      (unless (char=? #\8 c)
+        (error "unsupported unsigned size vector size" c))
+      c))
+  (define paren (read-char prt))
+  (unless (char=? #\()
+    (error "invalid paren char for bytevector" paren))
+  (let ((els (yl-read-list-elements prt)))
+    (apply bytevector
+           (map (lambda (el)
+                  (if (and (number? el)
+                           (in-byte-range? el))
+                      el
+                      (error "unsupported bytevector element" el)))
+                els))))
+
+(define (read-vector-elements prt)
+  (list->vector (yl-read-list-elements prt)))
+
+(define (make-in-range-pred min max)
+  (lambda (n)
+    (and (>= n min)
+         (<= n max))))
+
+(define in-byte-range? (make-in-range-pred 0 255))
+
+(define (read-escaped-char prt)
+  (with-peeked-char c prt
+    (if (symbol-terminal-char? c)
+        (read-char prt)
+        (let* ((rest (symbol->string (read-symbol-from-port prt)))
+               (chr (assoc rest
+                           '(("alarm" . #\alarm)
+                             ("backspace" . #\backspace)
+                             ("delete" . #\delete)
+                             ("escape" . #\escape)
+                             ("newline" . #\newline)
+                             ("null" . #\null)
+                             ("return" . #\return)
+                             ("space" . #\space)
+                             ("tab" . #\tab)))))
+          (display "--DEBUG--")
+          (display rest)
+          (display "--DEBUG--")
+          (newline)
+          (if (= 1 (string-length rest))
+              (car (string->list rest)) ; string->char
+              (if chr
+                  (cdr chr)
+                  (error "unsupported char escape sequence" rest)))))))
+
 (define (make-char-=?-fn a)
   (lambda (b) (char=? a b)))
 
@@ -93,6 +174,7 @@
 (define char-ends-list? (make-char-=?-fn #\)))
 (define char-starts-string? (make-char-=?-fn #\"))
 (define quote-char? (make-char-=?-fn #\'))
+(define hash-char? (make-char-=?-fn #\#))
 
 (define (number-prefix-char? c)
   (or (char=? #\+ c)
@@ -117,21 +199,20 @@
 (define (read-number-from-port prt)
   (string->number (read-from-port-until char-ends-number? prt)))
 
+(define symbol-terminal-chars (string->list "\"'()[]{},`"))
+(define (symbol-terminal-char? c) (member c symbol-terminal-chars))
+
 (define (char-ends-symbol? c)
-  ;; incomplete
+  ;; incomplete?
   (or (char-whitespace? c)
-      (char-starts-string? c)
-      (quote-char? c)
-      (char-starts-list? c)
-      (char-ends-list? c)))
+      (member c symbol-terminal-chars)))
+
+(define number-terminal-chars symbol-terminal-chars)
 
 (define (char-ends-number? c)
   ;; incomplete
   (or (char-whitespace? c)
-      (char-starts-string? c)
-      (quote-char? c)
-      (char-starts-list? c)
-      (char-ends-list? c)))
+      (member c number-terminal-chars)))
 
 (define (yl-read-through-whitespace prt)
   (read-from-port-while char-whitespace? prt))
@@ -141,13 +222,10 @@
 
 (let ((prt
        ;(open-input-string "   (  aff \n \tbaff  mm a fo) ooo")
-       (open-input-string " 12.3  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
+       (open-input-string " #u8(1 2 14 42)  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
        ))
-  (display (yl-read prt))
   (newline)
-  (display "'")
-  (display (peek-char prt))
-  (display "'")
+  (display (yl-read prt))
   (newline)
   (display (yl-read prt))
   (newline)
