@@ -60,6 +60,9 @@
      ((char-starts-list? c)
         (read-char prt)
         (yl-read-list-elements prt))
+     ((char-starts-string? c)
+      (read-char prt)
+      (read-string-from-port prt))
      (else
       (read-symbol-from-port prt)))))
 
@@ -71,6 +74,40 @@
      ((char-ends-list? c) (begin (read-char prt) '()))
      (else (let ((elt (yl-read-from-port prt)))
              (cons elt (yl-read-list-elements prt)))))))
+
+(define (read-string-from-port prt)
+  (define (read-intraline-whitespace)
+    (with-peeked-char c prt
+      (when (char-whitespace? c)
+        (read-char prt)
+        (read-intraline-whitespace prt))))
+  (define (read-escape-sequence)
+    (define c (read-char prt))
+    (define escapes '((#\t . #\tab)
+                      (#\n . #\newline)
+                      (#\r . #\return)
+                      (#\" . #\")
+                      (#\\ . #\\)))
+    (define escaped (assoc c escapes))
+    (cond
+     ((char-whitespace? c) (read-intraline-whitespace))
+     ((char=? #\x c) (error "NYI: hex scalar value characters"))
+     (escaped (display (cdr escaped)))))
+  (define (read-loop in-escape?)
+    (if in-escape?
+        (begin (read-escape-sequence) (read-loop #f))
+        (let ((c (read-char prt)))
+          (cond
+           ((char=? #\" c) (if #f #f)) ; void
+           ((char=? #\\ c) (read-loop #t))
+           ((char=? #\newline c) (display #\newline) (read-loop #f))
+           (else (display c) (read-loop #f))))))
+  (define out (open-output-string))
+  (parameterize ((current-output-port out))
+    (read-loop #f)
+    (let ((str (get-output-string out)))
+      (close-output-port out)
+      str)))
 
 (define (read-number-from-port prt)
   (string->number (read-from-port-until char-ends-number? prt)))
@@ -218,7 +255,7 @@
 
 (let ((prt
        ;(open-input-string "   (  aff \n \tbaff  mm a fo) ooo")
-       (open-input-string " #u8(1 2 14 42)  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
+       (open-input-string " \"hello\\n \\tw\\\"o\\\"rld\" #u8(1 2 14 42)  -123 +321 -QED-  (  aff \n \tbaff  mm a fo) ooo")
        ))
   (newline)
   (display (yl-read prt))
