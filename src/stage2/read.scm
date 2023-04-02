@@ -90,6 +90,7 @@
                       (#\\ . #\\)))
     (define escaped (assoc c escapes))
     (cond
+     ((eof-object? c) (error "unexpected eof in the middle of string"))
      ((char-whitespace? c) (read-intraline-whitespace))
      ((char=? #\x c) (error "NYI: hex scalar value characters"))
      (escaped (display (cdr escaped)))))
@@ -98,6 +99,7 @@
         (begin (read-escape-sequence) (read-loop #f))
         (let ((c (read-char prt)))
           (cond
+           ((eof-object? c) (error "unexpected eof in the middle of string"))
            ((char=? #\" c) (if #f #f)) ; void
            ((char=? #\\ c) (read-loop #t))
            ((char=? #\newline c) (display #\newline) (read-loop #f))
