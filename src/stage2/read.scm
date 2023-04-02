@@ -188,15 +188,15 @@
         (read-char prt)
         (let* ((rest (symbol->string (read-symbol-from-port prt)))
                (chr (assoc rest
-                           '(("alarm" . #\alarm)
+                           '(("alarm"     . #\alarm)
                              ("backspace" . #\backspace)
-                             ("delete" . #\delete)
-                             ("escape" . #\escape)
-                             ("newline" . #\newline)
-                             ("null" . #\null)
-                             ("return" . #\return)
-                             ("space" . #\space)
-                             ("tab" . #\tab)))))
+                             ("delete"    . #\delete)
+                             ("escape"    . #\escape)
+                             ("newline"   . #\newline)
+                             ("null"      . #\null)
+                             ("return"    . #\return)
+                             ("space"     . #\space)
+                             ("tab"       . #\tab)))))
           (if (= 1 (string-length rest))
               (car (string->list rest)) ; string->char
               (if chr
