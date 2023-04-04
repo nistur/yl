@@ -58,6 +58,7 @@
 //  Proper documentation will follow once this is more standardised and stable//
 //----------------------------------------------------------------------------//
 
+#define USE_HASHED_SYMBOLS
 
 //----------------------------------------------------------------------------//
 // Macros                                                                     //
@@ -68,21 +69,25 @@
 #define REFCOUNT ref_t _ref;
 // Release memory
 #define FREE(v) Free(&(v))
-#define FREE_ENV(v) FreeEnv(&(v), 0)
 // Increase reference count - hold reference to a struct
 #define RETAIN(_val) { ((ref_t*)_val)->_refCount += 1; }
 // Decrease reference count - Free memory if no references left
 #define RELEASE(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE(_val); }}
-#define RELEASE_ENV(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { FREE_ENV(_val); }}
-#define __SET(XX,v,e) {sb_push(e->keys, XX); sb_push(e->vals, v); RETAIN(v);}
-// Set a value to a given name-hash (prefer SET)
-#define _SET(XX,val)  __SET(XX,val,env)
+#define RELEASE_ENV(_val) { if((((ref_t*)_val)->_refCount-= 1) <= 0) { _val->pair.car = NIL; FREE(_val); }}
 // Set a value to a given name
-#define SET(name,val) _SET(hash(name), val) 
+#ifdef USE_HASHED_SYMBOLS
+# define SET(name,val,env) Set(hash(name), val, env)
+#else
+# define SET(name,val,env) Set(name, val, env)
+#endif
 // Get a named value
 #define GET(name) Get(env, hash(name))
 // Replace a named value with a new one
-#define REPLACE(name, val) Replace(env, hash(name), val);
+#ifdef USE_HASHED_SYMBOLS
+# define REPLACE(env, name, val) Replace(env, hash(name), val);
+#else
+# define REPLACE(env, name, val) Replace(env, name, val);
+#endif
 // Create a new environment
 #define ENV() _env()
 // Create a new cell of a given type with specific value
@@ -93,6 +98,8 @@
 #define FUNL() CELL(FUNL,0)
 // Quote the following cell
 #define QUOTE() CELL(QUOT,0)
+// Number type
+#define NUMBER(x) CELL(VAL, x)
 // Push a value onto a list
 #define PUSH_BACK(list, val)						\
   {									\
@@ -153,9 +160,8 @@ typedef enum
 } cell_type;
 
 // C function pointer
-struct _env_t;
 struct cell_t;
-typedef struct _cell_t* (*func)(struct _cell_t*, struct _env_t* env);
+typedef struct _cell_t* (*func)(struct _cell_t*, struct _cell_t* env);
 
 typedef struct _pair_t
 {
@@ -176,21 +182,18 @@ typedef struct _cell_t
 	struct _cell_t* inner;
 	pair_t pair;
     };
-    struct _env_t* env; // do not like having this here
-} cell_t, cell_t, *ast_t;
+    struct _cell_t* env; // do not like having this here
+} cell_t, cell_t, *ast_t, *env_t;
 
-
+cell_t* _cell(cell_type t, void* val);
 void Free(cell_t** cell);
-void FreeEnv(struct _env_t** env, int force);
+#ifdef USE_HASHED_SYMBOLS
+void Set(int name, cell_t* val, cell_t* env);
+#else
+void Set(const char* name, cell_t* val, cell_t* env);
+#endif
 
 // Environment/scope, a simple hashmap lookup, with ability to have children
-typedef struct _env_t
-{
-    REFCOUNT;
-    int*           keys;
-    cell_t**  vals;
-    struct _env_t* _parent;
-} *env_t;
 
 //----------------------------------------------------------------------------//
 // Static types                                                               //
@@ -245,9 +248,10 @@ void write_file_text(const sym_t fname, const sym_t content)
 // Create a new environment
 env_t _env()
 {
-  env_t env = malloc(sizeof(struct _env_t));
-  memset(env, 0, sizeof(struct _env_t));
-  return env;
+    env_t env = LIST();
+    env->pair.cdr = LIST();
+    RETAIN(env->pair.cdr);
+    return env;
 }
 
 int ___i = 0;
@@ -289,22 +293,48 @@ cell_t* _cell(cell_type t, void* val)
 }
 
 // Retrieve a hashed, named cell from the current scope
-cell_t* Get(env_t env, int hash)
+cell_t* Get(env_t env, int namehash)
 {
-    for(int i = 0; i < sb_count(env->keys); ++i)
+    cell_t* tempenv = CDR(env);
+    cell_t* parent = CAR(env);
+    while(NOT_NIL(tempenv))
     {
-	if(env->keys[i] == hash)
+	cell_t* pair = CAR(tempenv);
+#ifdef USE_HASHED_SYMBOLS
+	if(CAR(pair)->t == VAL && CAR(pair)->val == namehash)
+#else
+	if(CAR(pair)->t == STRING && hash(CAR(pair)->sym) == namehash)
+#endif
 	{
-	    return env->vals[i];
+	    return CDR(pair);
 	}
+	
+	tempenv = CDR(tempenv);
     }
     // If we got here, we didn't find it in the curren
     // scope, so try going up one level
-    if( env->_parent )
+    if(NOT_NIL(parent))
     {
-	return Get(env->_parent, hash);
+	return Get(parent, namehash);
     }
     return NIL;
+}
+#ifdef USE_HASHED_SYMBOLS
+void Set(int name, cell_t* val, env_t env)
+#else
+void Set(const char* name, cell_t* val, env_t env)
+#endif
+{
+    cell_t* entry = LIST();
+#ifdef USE_HASHED_SYMBOLS
+    entry->pair.car = CELL(VAL, name);
+#else
+    entry->pair.car = CELL(STRING, name);
+#endif
+    entry->pair.cdr = val;
+    RETAIN(val);
+    RETAIN(entry);
+    PUSH_BACK(CDR(env), entry);
 }
 
 const char* ESCAPE_CHARS = "ntr0\"\\";
@@ -509,10 +539,10 @@ cell_t* Eval(cell_t* cell, env_t env)
 
 		env_t scope = ENV();
 		RETAIN(scope);
-		scope->_parent = fn->env;;
+		scope->pair.car = fn->env;
 		while(NOT_NIL(name) && NOT_NIL(CAR(name)) && NOT_NIL(val) && NOT_NIL(CAR(val)))
 		{
-		    __SET(hash(((cell_t*)CAR(name))->sym),
+		    SET(CAR(name)->sym,
 			  Eval(CAR(val), env),
 			  scope);
 		    name = CDR(name);
@@ -541,7 +571,7 @@ cell_t* Eval(cell_t* cell, env_t env)
     // If we find a symbol, look it up and replace with the relevant value
     if(cell->t == SYM)
     {
-	return GET(((cell_t*)cell)->sym);
+	return GET(cell->sym);
     }
     return cell;
 }
@@ -589,7 +619,7 @@ void Free(cell_t** cell)
 	RELEASE((*cell)->inner);
 	break;
     case FUNL:
-	RELEASE_ENV((*cell)->env);
+	RELEASE((*cell)->env);
       break;
     case VAL:
     case BOOL:
@@ -607,43 +637,39 @@ void Free(cell_t** cell)
     *cell = NIL;
 }
 
-void FreeEnv(env_t* env, int force)
-{
-    for(int i = 0; i < sb_count( (*env)->vals ); ++i)
-    {
-        if(force)
-	{
-	  FREE((*env)->vals[i]);
-	}
-	else
-	{
-	  RELEASE((*env)->vals[i]);
-	}
-    }
-    sb_free((*env)->keys); sb_free((*env)->vals);
-    free(*env);
-    *env = NULL;
-}
 
 // Replace a value in memory if the name already exists
-cell_t* Replace(env_t env, int hash, cell_t* val)
+#ifdef USE_HASHED_SYMBOLS
+cell_t* Replace(env_t env, int name, cell_t* val)
+#else
+cell_t* Replace(env_t env, const char* name, cell_t* val)
+#endif
 {
     env_t scope = env;
     while(scope)
     {
-	for(int i = 0; i < sb_count(scope->keys); ++i)
+	cell_t* tempenv = CDR(scope);
+	cell_t* parent = CAR(scope);
+	while(NOT_NIL(tempenv))
 	{
-	    if(scope->keys[i] == hash)
+	    cell_t* entry = CAR(tempenv);
+#ifdef USE_HASHED_SYMBOLS
+	    if(CAR(entry)->t == STRING && CAR(entry)->val == name)
+#else
+	    if(CAR(entry)->t == STRING && hash(CAR(entry)->sym) == hash(name))
+#endif
 	    {
-		RELEASE(scope->vals[i]);
-		scope->vals[i] = val;
+		RELEASE(entry->pair.cdr);
+		entry->pair.cdr = val;
 		return val;
 	    }
+	    tempenv = CDR(tempenv);
 	}
-	scope = scope->_parent;
+	
+	scope = parent;
     }
     // we couldn't find a matching name, so just set it
-    _SET(hash, val);
+    Set(name, val, env);
     return val;
 }
 
@@ -788,22 +814,7 @@ cell_t* set(cell_t* cell, env_t env)
     {
 	cell_t* val = Eval(CADR(cell), env);
 
-	int namehash = hash(name->sym);
-	while(env != NULL)
-	{
-	    for(int i = 0; i < sb_count(env->keys); ++i)
-	    {
-		if(env->keys[i] == namehash)
-		{
-		    RETAIN(val);
-		    RELEASE(env->vals[i]);
-		    env->vals[i] = val;
-		    return NIL;
-		}
-		   
-	    }
-	    env = env->_parent;
-	}
+	REPLACE(env,name->sym, val);
     }
     return NIL;
 }
@@ -816,7 +827,7 @@ cell_t* define(cell_t* cell, env_t env)
     {
 	cell_t* val = Eval(CADR(cell), env);
 	RETAIN(val);
-	REPLACE(name->sym, val);
+	REPLACE(env, name->sym, val);
     }
     RELEASE(name);
     return NIL;
@@ -1067,16 +1078,28 @@ cell_t* global(cell_t* cell, env_t env)
     }
 
     env_t g = env;
-    while(g->_parent != NULL) g = g->_parent;
+    while(NOT_NIL(CAR(g))) g = CAR(g);
 
-    for(int i = 0; i < sb_count(env->keys); ++i)
+    env = CDR(env);
+    while(NOT_NIL(env))
     {
-	Replace(g, env->keys[i], env->vals[i]);
-	// This env has been brought into the global scope so the entries in here should be dropped - this is
-	// in case something in a child scope accesses them as well as something in the global scope - if they
-	// get overwritten in the global scope, the change won't be detected by the child scope
-	env->keys[i] = 0;
-	env->vals[i] = NIL;
+	cell_t* pair = CAR(env);
+#ifdef USE_HASHED_SYMBOLS
+	if(CAR(pair)->t == VAL)
+	{
+	    RETAIN(CDR(pair));
+	    Replace(g, CAR(pair)->val, CDR(pair));
+	}
+#else
+	if(CAR(pair)->t == STRING)
+	{
+	    RETAIN(CDR(pair));
+	    Replace(g, CAR(pair)->sym, CDR(pair));
+	}
+#endif
+	pair->pair.car = 0;
+	pair->pair.cdr = NIL;
+	env = CDR(env);
     }
     
     return res;
@@ -1099,7 +1122,7 @@ cell_t* cond(cell_t* cell, env_t env)
 cell_t* let(cell_t* cell, env_t env)
 {
     env_t scope = ENV();
-    scope->_parent = env;
+    scope->pair.car = env;
     RETAIN(scope);
     cell_t* values = CAR(cell);
     while(NOT_NIL(values))
@@ -1109,7 +1132,7 @@ cell_t* let(cell_t* cell, env_t env)
 //	RETAIN(value);
 	if(NOT_NIL(name))
 	{
-	    __SET(hash(name->sym), value, scope);
+	    SET(name->sym, value, scope);
 	}
 	
 	values = CDR(values);
@@ -1182,10 +1205,10 @@ cell_t* substr(cell_t* cell, env_t env)
     cell = Eval(cell, env);						\
     return cell->t == type ? T : F;					\
   }
-#define DECLARE_PREDICATE(name)			\
-  SET(#name"?", CELL(FUNC, name##_predicate));
+#define DECLARE_PREDICATE(name)				\
+    SET(#name"?", CELL(FUNC, name##_predicate),env);
 #define DECLARE_FUNC(sym, name)			\
-  SET(sym, CELL(FUNC, name))
+    SET(sym, CELL(FUNC, name), env)
 
 DEFINE_PREDICATE(list, LIST);
 DEFINE_PREDICATE(symbol, SYM);
@@ -1271,8 +1294,8 @@ int main(int argc, char** argv)
 	cell_t* arg = CELL(STRING, argv[i]);
 	PUSH_BACK(args, arg);
     }
-    SET("args", args);
-    SET("__e", LIST())
+    SET("args", args, env);
+    SET("__e", LIST(), env);
     
     
     NIL = CELL(VAL, 0 );
@@ -1280,16 +1303,16 @@ int main(int argc, char** argv)
     F = NIL;
     COMMENT = CELL(SYM, ";;; COMMENT ;;;");
     
-    SET("t", T);
-    SET("f", F);
-    SET("nil", NIL);
+    SET("t", T, env);
+    SET("f", F, env);
+    SET("nil", NIL, env);
 
     ast_t ast = Parse("(eval (parse (read-file-text \"stage0.yl\")))");
     //ast_t ast = Parse("(eval (parse (read-file-text \"hello.yl\")))");
     cell_t* cell = (cell_t*)ast;
 
     // set the ast to be available in lisp in case we want it
-    SET("ast", ast);
+    SET("ast", ast, env);
 
     while( NOT_NIL(cell) )
     {
@@ -1298,7 +1321,7 @@ int main(int argc, char** argv)
     }
     
     Free(&COMMENT);
-    FreeEnv(&env, FORCE);
+    Free(&env);
 
     printf("Number of leaked cells:%d/%d (%luB)\n", ___i, ___t, ___i*sizeof(cell_t));
 }
