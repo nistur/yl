@@ -25,6 +25,8 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
+#define MEM_PROFILE
+
 // using stretchy buffers from nothings.org as it's a perfectly good
 // minimal solution, and I don't want to rewrite _everything_ from scratch
 #include "stretchy_buffer.h"
@@ -101,16 +103,17 @@
 // Number type
 #define NUMBER(x) CELL(VAL, x)
 // Push a value onto a list
-#define PUSH_BACK(list, val)						\
+#define _PUSH_BACK(list, val, ctr)					\
   {									\
       cell_t* l = list;							\
       while(NOT_NIL(CAR(l)))						\
       {									\
-	  if(IS_NIL(CDR(l))) l->pair.cdr = LIST();			\
-	  l = CDR(l);							\
+	if(IS_NIL(CDR(l))) l->pair.cdr = ctr;				\
+	l = CDR(l);							\
       }									\
       l->pair.car = val;						\
   }
+#define PUSH_BACK(list, val) _PUSH_BACK(list, val, LIST());
 
 #define NOT_NIL(x) ((x != NULL) && ((x) != NIL))
 #define IS_NIL(x) (!NOT_NIL(x))
@@ -156,6 +159,10 @@ typedef enum
     QUOT,// '
     STRING,// string value
 
+#ifdef MEM_PROFILE
+    MEM, // memory profiler
+#endif
+    
     MAX_TYPE,
 } cell_type;
 
@@ -181,6 +188,9 @@ typedef struct _cell_t
 	func func;
 	struct _cell_t* inner;
 	pair_t pair;
+#ifdef MEM_PROFILE
+      void* mem;
+#endif
     };
     struct _cell_t* env; // do not like having this here
 } cell_t, cell_t, *ast_t, *env_t;
@@ -222,6 +232,7 @@ int hash(const char* str)
 // Reading file
 sym_t read_file_text(const sym_t fname)
 {
+  // TODO: check file exists!
   FILE* fp = fopen(fname, "r");
   fseek(fp, 0L, SEEK_END);
   long size = ftell(fp);
@@ -241,6 +252,72 @@ void write_file_text(const sym_t fname, const sym_t content)
     fclose(fp);
 }
 
+#ifdef MEM_PROFILE
+cell_t *__mem;
+cell_t* mem_list_ctr()
+{
+  void* malloc_empty(size_t);
+  cell_t* ptr = malloc_empty(sizeof(cell_t));
+  ptr->t = LIST;
+  return ptr;
+}
+#endif
+
+void* malloc_empty(size_t size)
+{
+  void* ptr = malloc(size);
+  memset(ptr, 0, size);
+  return ptr;
+}
+
+void* malloc_yl(size_t size)
+{
+  void* ptr = malloc_empty(size);
+#ifdef MEM_PROFILE
+  cell_t* _cell(cell_type t, void* val);
+  if(__mem == NULL)
+  {
+    __mem = mem_list_ctr();
+  }
+  cell_t* track = malloc_empty(sizeof(cell_t));
+  track->t = MEM;
+  track->mem = ptr;
+  
+  _PUSH_BACK(__mem, track, mem_list_ctr());
+#endif
+  return ptr;
+}
+
+void free_yl(void* ptr)
+{
+#ifdef MEM_PROFILE
+  cell_t* cell = __mem;
+  while(NOT_NIL(cell))
+  {
+    if(cell->pair.car->mem == ptr) break;
+    cell = cell->pair.cdr;
+  }
+
+  if(cell == NIL || cell == NULL)
+  {
+      printf("non-tracked memory freed\n");
+      printf("  %p\n", ptr);
+      void print_cell(cell_t*);
+      print_cell((cell_t*)ptr);
+  }
+  else
+  {
+    //    free(cell->pair.car->mem);
+    free(cell->pair.car);
+    cell_t* cdr = CDR(cell);
+    cell->pair.car = CAR(cdr);
+    cell->pair.cdr = CDR(cdr);
+    free(cdr);
+  }
+#endif
+  //free(ptr);
+}
+
 //----------------------------------------------------------------------------//
 // Code starts here!                                                          //
 //----------------------------------------------------------------------------//
@@ -254,15 +331,15 @@ env_t _env()
     return env;
 }
 
-int ___i = 0;
-int ___t = 0;
-int ___r = 0;
+unsigned int ___i = 0;
+unsigned int ___t = 0;
+unsigned int ___r = 0;
 // Create a new cell
 cell_t* _cell(cell_type t, void* val)
 {
     ++___i;
     ++___t;
-    cell_t* cell = malloc(sizeof(cell_t));
+    cell_t* cell = malloc_yl(sizeof(cell_t));
     memset(cell, 0, sizeof(cell_t));
     cell->t = t;
     
@@ -285,6 +362,12 @@ cell_t* _cell(cell_type t, void* val)
 	cell->sym = malloc(len);
 	memcpy(cell->sym, val, len);
     }
+#ifdef MEM_PROFILE
+    else if(t == MEM)
+    {
+      cell->mem = val;
+    }
+#endif
     else
     {
 	cell->sym = val;
@@ -633,7 +716,7 @@ void Free(cell_t** cell)
 
     memset(*cell, 0, sizeof(cell_t));
     (*cell)->t = MAX_TYPE;
-    free(*cell);
+    free_yl(*cell);
     *cell = NIL;
 }
 
@@ -1038,6 +1121,14 @@ void print_cell(cell_t* cell)
     case STRING:
 	printf("S:\"%s\"\n", cell->sym);
 	break;
+#ifdef MEM_PROFILE
+    case MEM:
+      printf("M:%p\n", cell->mem);
+      ++depth;
+      print_cell(((cell_t*)cell->mem));
+      --depth;
+      break;
+#endif
     default:
       printf("UNKNOWN\n");
       break;
@@ -1058,6 +1149,7 @@ cell_t* lisp_eval(cell_t* cell, env_t env)
     cell = list;
     RETAIN(list);
     PUSH_BACK(GET("__e"), list)
+
     // then actually eval what requested
     cell_t* res = NIL;
     while( NOT_NIL(cell) )
@@ -1065,6 +1157,7 @@ cell_t* lisp_eval(cell_t* cell, env_t env)
 	res = Eval( cell, env );
 	cell = CDR(cell);
     }
+    RELEASE(list);
     return res;
 }
 
@@ -1322,6 +1415,5 @@ int main(int argc, char** argv)
     
     Free(&COMMENT);
     Free(&env);
-
-    printf("Number of leaked cells:%d/%d (%luB)\n", ___i, ___t, ___i*sizeof(cell_t));
+    print_cell(__mem);
 }
