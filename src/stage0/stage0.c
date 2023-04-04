@@ -26,6 +26,7 @@
 #include <sys/stat.h>
 
 #define MEM_PROFILE
+//#define USE_HASHED_SYMBOLS
 
 // using stretchy buffers from nothings.org as it's a perfectly good
 // minimal solution, and I don't want to rewrite _everything_ from scratch
@@ -54,13 +55,11 @@
 // (display "banana")                                                         //
 // (let ((banana 1))                                                          //
 //      (display (+ banana 1)))                                               //
-// (set! 'banana (lambda (x) (display (car x))))                              //
+// (set! banana (lambda (x) (display (car x))))                               //
 // (banana (cons 1 (cons 2 NIL)))                                             //
 //----------------------------------------------------------------------------//
 //  Proper documentation will follow once this is more standardised and stable//
 //----------------------------------------------------------------------------//
-
-#define USE_HASHED_SYMBOLS
 
 //----------------------------------------------------------------------------//
 // Macros                                                                     //
@@ -158,7 +157,8 @@ typedef enum
     FUNC,// C fn
     QUOT,// '
     STRING,// string value
-
+    ERROR, // error type
+    
 #ifdef MEM_PROFILE
     MEM, // memory profiler
 #endif
@@ -1307,6 +1307,7 @@ DEFINE_PREDICATE(list, LIST);
 DEFINE_PREDICATE(symbol, SYM);
 DEFINE_PREDICATE(string, STRING);
 DEFINE_PREDICATE(value, VAL);
+DEFINE_PREDICATE(error, ERROR);
 
 
 cell_t* is_nil(cell_t* cell, env_t env)
@@ -1344,6 +1345,41 @@ cell_t* system_call(cell_t* cell, env_t env)
     return success > 0 ? T : F;
 }
 
+cell_t* raise(cell_t* cell, env_t env)
+{
+  cell_t* exception = Eval(cell, env);
+  // raise an exception here if this isn't SYM?
+
+  // TODO: This needs to go through all C code and anywhere any code is Eval'd,
+  // the output checked, and passed back immediately if it is of type ERROR
+  return CELL(ERROR, exception->sym);
+}
+
+cell_t* raise_continuable(cell_t* cell, env_t env)
+{
+  cell_t* exception = Eval(cell, env);
+  cell_t* handler = GET("__exception-handler");
+  cell_t* fn = LIST();
+  PUSH_BACK(fn, handler);
+  PUSH_BACK(fn, exception);
+  return Eval(fn, env);
+}
+
+cell_t* with_exception_handler(cell_t* cell, env_t env)
+{
+  cell_t* handler = CAR(cell);
+  SET("__exception-handler", handler, env);
+  cell_t* res = Eval(CDR(cell), env);
+  if(res->t == ERROR)
+  {
+    cell_t* fn = LIST();
+    PUSH_BACK(fn, handler);
+    PUSH_BACK(fn, res);
+    return Eval(fn, env);
+  }
+  return res;
+}
+
 // main entry point
 int main(int argc, char** argv)
 {
@@ -1376,10 +1412,14 @@ int main(int argc, char** argv)
     DECLARE_FUNC("file-exists?", file_exists_p);
     DECLARE_FUNC("global", global);
     DECLARE_FUNC("system", system_call);
+    DECLARE_FUNC("raise", raise);
+    DECLARE_FUNC("raise-continuable", raise_continuable);
+    DECLARE_FUNC("with-exception-handler", with_exception_handler);
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);
     DECLARE_PREDICATE(value);
+    DECLARE_PREDICATE(error);
 
     cell_t* args = LIST();
     for(int i = 0; i < argc; ++i)
