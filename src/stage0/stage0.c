@@ -123,6 +123,8 @@
 #define CADDR(x) (CAR(CDR(CDR(x))))
 #define CDDR(x)  (CDR(CDR(x)))
 
+#define CHECK(x) if(x->t == MAX_TYPE) return CELL(ERROR, "Attempting to access released memory");
+
 
 #define FORCE 1
 //----------------------------------------------------------------------------//
@@ -634,8 +636,10 @@ cell_t* Eval(cell_t* cell, env_t env)
 	    if(params->t == LIST)
 	    {
 	        cell_t* name = fn->pair.car;
+		CHECK(name);
 		cell_t* val = params;
-
+		CHECK(val);
+		
 		env_t scope = ENV();
 		RETAIN(scope);
 		scope->pair.car = fn->env;
@@ -654,6 +658,8 @@ cell_t* Eval(cell_t* cell, env_t env)
 		fn = fn->pair.cdr;
 		while(NOT_NIL(CAR(fn)))
 		{
+		    CHECK(fn);
+		    CHECK(CAR(fn));
 		    EVAL(CAR(fn), scope, res);
 		    fn = CDR(fn);
 		}
@@ -734,7 +740,7 @@ void Free(cell_t** cell)
     ___i--;
     ++___r;
 
-    memset(*cell, 0, sizeof(cell_t));
+    //memset(*cell, 0, sizeof(cell_t));
     (*cell)->t = MAX_TYPE;
     free_yl(*cell);
     *cell = NIL;
@@ -1003,7 +1009,9 @@ cell_t* lambda(cell_t* cell, env_t env)
 	{
 	    cell_t* list = cell;
 	    val->pair.car = CAR(list);
+	    RETAIN(CAR(val));
 	    val->pair.cdr = CDR(list);
+	    RETAIN(CDR(val));
 	    RETAIN(env);
 	    val->env = env;
 	    return val;
@@ -1140,7 +1148,7 @@ void print_cell(cell_t* cell)
 	printf("N:\n");
 	break;
     case FUNL:
-	printf("F:\n");
+	printf("L:\n");
 	break;
     case FUNC:
 	printf("F:%p\n", cell->func);
@@ -1153,6 +1161,9 @@ void print_cell(cell_t* cell)
 	break;
     case STRING:
 	printf("S:\"%s\"\n", cell->sym);
+	break;
+    case ERROR:
+	printf("E:\"%s\"\n", cell->sym);
 	break;
 #ifdef MEM_PROFILE
     case MEM:
@@ -1282,8 +1293,7 @@ cell_t* string_equals(cell_t* cell, env_t env)
 {
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
-    if(test->t != SYM && test->t != STRING)
-	return NIL;
+    ASSERT((test->t == STRING || test->t == SYM), "\"string=?\": invalid type, expected String: %s", str(test, env)->sym);
     cell = CDR(cell);
     while(NOT_NIL(cell))
     {
@@ -1291,12 +1301,11 @@ cell_t* string_equals(cell_t* cell, env_t env)
 	
 	cell_t* val = NIL;
 	EVAL(CAR(cell), env, val);
-	if(val->t != SYM && val->t != STRING)
-	    return NIL;
+	ASSERT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", str(val, env)->sym);
 	
 	if(val == NIL) return NIL;
 	
-	if(strcmp(val->sym, test->sym) != 0) return NIL;
+	if(strcmp(val->sym, test->sym) != 0) return F;
 	
 	cell = CDR(cell);
     }
@@ -1305,15 +1314,16 @@ cell_t* string_equals(cell_t* cell, env_t env)
 
 cell_t* substr(cell_t* cell, env_t env)
 {
-  cell_t* string = str(CAR(cell), env);
+  cell_t* string = NIL;
+  EVAL(CAR(cell), env, string);
   cell_t* start = NIL;
   cell_t* end = NIL;
   EVAL(CADR(cell), env, start);
   EVAL(CADDR(cell), env, end);
 
-  if(string->t != SYM && string->t != STRING) return NIL;
-  if(start->t != VAL) return NIL;
-  if(end->t != VAL) return NIL;
+  ASSERT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", str(string, env)->sym);
+  ASSERT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(start, env)->sym);
+  ASSERT((end->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(end, env)->sym);
 
   int cend = strlen(string->sym);
   if(end != NIL)
@@ -1391,9 +1401,6 @@ cell_t* raise(cell_t* cell, env_t env)
 {
   cell_t* exception = Eval(cell, env);
   // raise an exception here if this isn't SYM?
-
-  // TODO: This needs to go through all C code and anywhere any code is Eval'd,
-  // the output checked, and passed back immediately if it is of type ERROR
   return CELL(ERROR, exception->sym);
 }
 
@@ -1451,7 +1458,7 @@ int main(int argc, char** argv)
     DECLARE_FUNC("cond", cond);
     DECLARE_FUNC("let", let);
     DECLARE_FUNC("string=?", string_equals);
-    DECLARE_FUNC("substr", substr);
+    DECLARE_FUNC("substring", substr);
     DECLARE_FUNC("nil?", is_nil);
     DECLARE_FUNC("file-exists?", file_exists_p);
     DECLARE_FUNC("global", global);
@@ -1504,9 +1511,10 @@ int main(int argc, char** argv)
     if(res->t == ERROR)
     {
 	printf("ERROR: %s\n", res->sym);
+	RELEASE(res);
     }
     
     Free(&COMMENT);
     Free(&env);
-//    print_cell(__mem);
+    //print_cell(__mem);
 }
