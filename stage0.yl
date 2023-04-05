@@ -19,18 +19,6 @@
 ;; Philipp Geyer             Isak Andersson
 ;; philipp@geyer.co.uk       contact@bitpuffin.com
 
-
-(display "before with-exception-handler")(newline)
-(with-exception-handler
- (lambda (x)
-   (display x)(newline)
-   "continuable result")
- (lambda ()
-   (display "before raise-continuable")(newline)
-   (display (raise-continuable "continuable-error"))(newline)
-   (display "after raise-continuable")(newline)))
-(display "after-exception-handler")(newline)
-
 (eval (parse (read-file-text "src/stage0/stage0.yl")))
 
 (let ((FILE (cadr (command-line))))
