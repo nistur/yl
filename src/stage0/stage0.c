@@ -160,6 +160,7 @@ typedef enum
     QUOT,// '
     STRING,// string value
     ERROR, // error type
+    ERROR_HANDLED,
     
 #ifdef MEM_PROFILE
     MEM, // memory profiler
@@ -796,6 +797,8 @@ cell_t* str(cell_t* cell, env_t env)
     case SYM:
         res = CELL(STRING, val->sym);
 	break;
+    case ERROR:
+    case ERROR_HANDLED:
     case STRING:
 	res = val;
 	break;
@@ -1163,6 +1166,7 @@ void print_cell(cell_t* cell)
 	printf("S:\"%s\"\n", cell->sym);
 	break;
     case ERROR:
+    case ERROR_HANDLED:
 	printf("E:\"%s\"\n", cell->sym);
 	break;
 #ifdef MEM_PROFILE
@@ -1423,10 +1427,13 @@ cell_t* with_exception_handler(cell_t* cell, env_t env)
     cell_t* res = Eval(CDR(cell), env);
     if(res->t == ERROR)
     {
+        res->t = ERROR_HANDLED; // Flag this as being handled, to not trigger any more error checking
 	cell_t* fn = LIST();
 	PUSH_BACK(fn, handler);
 	PUSH_BACK(fn, res);
-	return Eval(fn, env);
+	cell_t* ret = Eval(fn, env);
+	if(res == ret) res->t = ERROR; // re-raise this error
+	return ret;
     }
     return res;
 }
