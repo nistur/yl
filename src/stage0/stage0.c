@@ -517,11 +517,22 @@ const char* ParseToken(cell_t** cell, const char* expr)
       return pTokEnd;
     case '#':
     {
-	cell_t* datum = NIL;
-	pTokEnd = ParseToken(&datum, pTokEnd);
-	RELEASE(datum); // this one has been commented out
-	*cell = COMMENT;
-	return pTokEnd;
+        if(*pTokEnd == ';')
+	{
+	  cell_t* datum = NIL;
+	  pTokEnd = ParseToken(&datum, pTokEnd+1);
+	  RELEASE(datum); // this one has been commented out
+	  *cell = COMMENT;
+	  return pTokEnd;
+	}
+	if(*pTokEnd == '|')
+	{
+	  // this is a block comment, look for the end.
+	  ++pTokEnd;
+	  while((*pTokEnd != '|') && (*(pTokEnd+1) != '#') && (*(pTokEnd+1) != 0)) ++pTokEnd;
+	  *cell = COMMENT;
+	  return pTokEnd+2;
+	}
     }
     }
 
@@ -1206,7 +1217,7 @@ cell_t* lisp_eval(cell_t* cell, env_t env)
 	EVAL( cell, env, res );
 	cell = CDR(cell);
     }
-    RELEASE(list);
+    //RELEASE(list);
     return res;
 }
 
