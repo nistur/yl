@@ -137,7 +137,7 @@
 # if defined(__GNUC__) || defined(__clang__)
 static jmp_buf __e;
 int __debug = 0;
-void sigtrap_handler(int sig) {siglongjmp(__e, 1);}
+void sigtrap_handler(int sig) {UNUSED(sig); siglongjmp(__e, 1);}
 #  define BREAK()				\
   if(__debug)					\
   {						\
@@ -167,8 +167,15 @@ void sigtrap_handler(int sig) {siglongjmp(__e, 1);}
 	BREAK();					\
 	return CELL(ERROR, __err);			\
     }
+#define ASSERT_RETURN(test, error)					\
+  if (!(test))								\
+  {									\
+      BREAK();								\
+      return;								\
+  }
 
-#define FORCE 1
+#define LISP_FUNC(name)\
+  cell_t* lisp_##name(cell_t* cell, env_t env)
 //----------------------------------------------------------------------------//
 // Types                                                                      //
 //----------------------------------------------------------------------------//
@@ -563,7 +570,7 @@ const char* ParseToken(cell_t** cell, const char* expr)
 	{
 	  cell_t* datum = NIL;
 	  pTokEnd = ParseToken(&datum, pTokEnd+1);
-	  RELEASE(datum); // this one has been commented out
+	  //	  RELEASE(datum); // this one has been commented out
 	  *cell = COMMENT;
 	  return pTokEnd;
 	}
@@ -708,7 +715,7 @@ cell_t* Eval(cell_t* cell, env_t env)
 		    fn = CDR(fn);
 		}
 		
-		RELEASE_ENV(scope);
+		//		RELEASE_ENV(scope);
 		return res;
 	    }
 	}
@@ -729,19 +736,6 @@ cell_t* Eval(cell_t* cell, env_t env)
     return cell;
 }
 
-cell_t* lisp_parse(cell_t* cell, env_t env)
-{
-    EVAL(cell, env, cell);
-    //    RETAIN(cell);
-    ast_t ast = LIST();
-    if(cell->t == STRING)
-    {
-	ParseList(ast, cell->sym);
-    }
-    RELEASE(cell);
-    return ast;
-}
-
 // Cleanup memory from an unused cell
 void Free(cell_t** cell)
 {
@@ -755,6 +749,8 @@ void Free(cell_t** cell)
     {
     case STRING:
     case SYM:
+    case ERROR:
+    case ERROR_HANDLED:
 	if((*cell)->sym)
 	{
 	    free((*cell)->sym);
@@ -780,6 +776,10 @@ void Free(cell_t** cell)
     case FUNC:
     case MAX_TYPE:
       break; // these don't have any additional memory allocated
+#ifdef MEM_PROFILE
+    case MEM:
+      ASSERT_RETURN(0, "Freeing memory tracker data");
+#endif
     }
     ___i--;
     ++___r;
@@ -812,7 +812,7 @@ cell_t* Replace(env_t env, const char* name, cell_t* val)
 	    if(CAR(entry)->t == STRING && hash(CAR(entry)->sym) == hash(name))
 #endif
 	    {
-		RELEASE(entry->pair.cdr);
+	      //		RELEASE(entry->pair.cdr);
 		entry->pair.cdr = val;
 		return val;
 	    }
@@ -829,7 +829,21 @@ cell_t* Replace(env_t env, const char* name, cell_t* val)
 //----------------------------------------------------------------------------//
 // Lisp standard functions                                                    //
 //----------------------------------------------------------------------------//
-cell_t* str(cell_t* cell, env_t env)
+
+LISP_FUNC(parse)
+{
+    EVAL(cell, env, cell);
+    //    RETAIN(cell);
+    ast_t ast = LIST();
+    if(cell->t == STRING)
+    {
+	ParseList(ast, cell->sym);
+    }
+    //    RELEASE(cell);
+    return ast;
+}
+
+LISP_FUNC(str)
 {
     cell_t* val = NIL;
     EVAL(cell, env, val);
@@ -863,7 +877,7 @@ cell_t* str(cell_t* cell, env_t env)
 	int p = 1;
 	while(NOT_NIL(val) && NOT_NIL(CAR(val)))
 	{
-	    cell_t* strcar = str(CAR(val), env);
+	    cell_t* strcar = lisp_str(CAR(val), env);
 	    int l = strlen(strcar->sym);
 	    char* pbuff = sb_add(buff, l+1);
 	    sprintf(pbuff-1, "%s ", strcar->sym);
@@ -876,7 +890,7 @@ cell_t* str(cell_t* cell, env_t env)
 	{
 	    if(val->t != LIST || (NOT_NIL(CAR(val)) && NOT_NIL(CDR(val))))
 	    {
-	      cell_t* strcar = str(val, env);
+	      cell_t* strcar = lisp_str(val, env);
 	      int l = strlen(strcar->sym);
 	      char* pbuff = sb_add(buff, l+3);
 	      sprintf(pbuff-1, ". %s ", strcar->sym);
@@ -901,23 +915,26 @@ cell_t* str(cell_t* cell, env_t env)
     case FUNC:
     case QUOT:
     case MAX_TYPE:
-	break;
+#ifdef MEM_PROFILE
+    case MEM:
+#endif
+      break;
     };
     return res;
 }
 
 // Print list with newline
-cell_t* display(cell_t* cell, env_t env)
+LISP_FUNC(display)
 {
-    cell_t* res = str(cell, env);
+    cell_t* res = lisp_str(cell, env);
     RETAIN(res);
     printf("%s", res->sym);
-    RELEASE(res);
+    //RELEASE(res);
     return NIL;
 }
 
 // arithemetic summation of all parameters
-cell_t* plus(cell_t* cell, env_t env)
+LISP_FUNC(plus)
 {
     number_t val = 0;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
@@ -937,7 +954,7 @@ cell_t* plus(cell_t* cell, env_t env)
     return CELL( VAL, val );
 }
 
-cell_t* sub(cell_t* cell, env_t env)
+LISP_FUNC(sub)
 {
     number_t val = 0;
     int first = 1;
@@ -965,7 +982,7 @@ cell_t* sub(cell_t* cell, env_t env)
 }
 
 // set named variable
-cell_t* set(cell_t* cell, env_t env)
+LISP_FUNC(set)
 {
     cell_t* name = NIL;
     EVAL(CAR(cell), env, name);
@@ -979,7 +996,7 @@ cell_t* set(cell_t* cell, env_t env)
     return NIL;
 }
 
-cell_t* define(cell_t* cell, env_t env)
+LISP_FUNC(define)
 {
     cell_t* name = CAR(cell);
     RETAIN(name);
@@ -990,24 +1007,28 @@ cell_t* define(cell_t* cell, env_t env)
 	RETAIN(val);
 	REPLACE(env, name->sym, val);
     }
-    RELEASE(name);
+    //    RELEASE(name);
     return NIL;
 }
 
-cell_t* concat(cell_t* cell, env_t env)
+LISP_FUNC(concat)
 {
     char* val = NULL;
     val = sb_add(val,1);
     val[0] = 0;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
-	cell_t* res = str(CAR(cell), env);
+        cell_t* res = lisp_str(CAR(cell), env);
 	int len = strlen(res->sym)+1;
 	char* pVal = sb_add(val, len);
 	if(pVal == NULL) break;
 	// using sprintf to repeatedly concatenate
 	// because it means I don't have to worry about null terminators
+	// Disable GCC warning as this doesn't understand the sb_add reallocates
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wrestrict"
 	sprintf(val, "%s%s", val, res->sym);
+#pragma GCC diagnostic pop
 	cell = CDR(cell);
     }
     cell = CELL(STRING, val);
@@ -1015,7 +1036,7 @@ cell_t* concat(cell_t* cell, env_t env)
     return cell;   
 }
 
-cell_t* cons(cell_t* cell, env_t env)
+LISP_FUNC(cons)
 {
     cell_t* lst = LIST();
     EVAL(CAR(cell), env, lst->pair.car);
@@ -1026,13 +1047,13 @@ cell_t* cons(cell_t* cell, env_t env)
 }
   
 
-cell_t* car( cell_t* cell, env_t env)
+LISP_FUNC(car)
 {
     EVAL(cell, env, cell);
     return CAR(cell);
 }
 
-cell_t* cdr( cell_t* cell, env_t env)
+LISP_FUNC(cdr)
 {
     EVAL(cell, env, cell);
     cell = CDR(cell);
@@ -1047,7 +1068,7 @@ cell_t* cdr( cell_t* cell, env_t env)
 }
 
 // define a lisp function
-cell_t* lambda(cell_t* cell, env_t env)
+LISP_FUNC(lambda)
 {
     {
 	cell_t* val = FUNL();
@@ -1066,7 +1087,7 @@ cell_t* lambda(cell_t* cell, env_t env)
     return NIL;
 }
 
-cell_t* less(cell_t* cell, env_t env)
+LISP_FUNC(less)
 {
     cell_t* val1 = NIL;
     cell_t* val2 = NIL;
@@ -1079,14 +1100,14 @@ cell_t* less(cell_t* cell, env_t env)
     return v1 < v2 ? T : F;
 }
 
-cell_t* not(cell_t* cell, env_t env)
+LISP_FUNC(not)
 {
     EVAL(cell, env, cell);
 
     return (cell == F || cell == NIL) ? T : F;
 }
 
-cell_t* lisp_if(cell_t* cell, env_t env)
+LISP_FUNC(if)
 {    
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
@@ -1097,7 +1118,7 @@ cell_t* lisp_if(cell_t* cell, env_t env)
     return Eval(CADDR(cell), env);
 }
 
-cell_t* lisp_read_file_text(cell_t* cell, env_t env)
+LISP_FUNC(read_file_text)
 {
     cell_t* nameval = NIL;
     EVAL(cell, env, nameval);
@@ -1114,7 +1135,7 @@ cell_t* lisp_read_file_text(cell_t* cell, env_t env)
     return res;
 }
 
-cell_t* lisp_write_file_text(cell_t* cell, env_t env)
+LISP_FUNC(write_file_text)
 {
     cell_t* nameval = NIL;
     cell_t* contentval = NIL;
@@ -1128,11 +1149,11 @@ cell_t* lisp_write_file_text(cell_t* cell, env_t env)
 	write_file_text(nameval->sym, contentval->sym);
     }
     
-    RELEASE(contentval); RELEASE(nameval);
+    //    RELEASE(contentval); RELEASE(nameval);
     return NIL;
 }
 
-cell_t* lisp_while(cell_t* cell, env_t env)
+LISP_FUNC(while)
 {
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
@@ -1226,14 +1247,14 @@ void print_cell(cell_t* cell)
     }
 }
 
-cell_t* lisp_print_cell(cell_t* cell, env_t env)
+LISP_FUNC(print_cell)
 {
     EVAL(cell, env, cell);
     print_cell(cell);
     return NIL;
 }
 
-cell_t* lisp_eval(cell_t* cell, env_t env)
+LISP_FUNC(eval)
 {
     // the first eval is to prepare the param
     cell_t* list = NIL;
@@ -1253,7 +1274,7 @@ cell_t* lisp_eval(cell_t* cell, env_t env)
     return res;
 }
 
-cell_t* global(cell_t* cell, env_t env)
+LISP_FUNC(global)
 {
     cell_t* res = NIL;
     while( NOT_NIL(cell) )
@@ -1290,7 +1311,7 @@ cell_t* global(cell_t* cell, env_t env)
     return res;
 }
 
-cell_t* cond(cell_t* cell, env_t env)
+LISP_FUNC(cond)
 {
     while(NOT_NIL(cell))
     {
@@ -1305,7 +1326,7 @@ cell_t* cond(cell_t* cell, env_t env)
     return NIL;
 }
 
-cell_t* let(cell_t* cell, env_t env)
+LISP_FUNC(let)
 {
     env_t scope = ENV();
     scope->pair.car = env;
@@ -1331,16 +1352,16 @@ cell_t* let(cell_t* cell, env_t env)
 	EVAL(cell, scope, res);
 	cell = CDR(cell);
     }
-    RELEASE_ENV(scope);
+    //    RELEASE_ENV(scope);
 
     return res;
 }
 
-cell_t* string_equals(cell_t* cell, env_t env)
+LISP_FUNC(string_equals)
 {
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
-    ASSERT_FORMAT((test->t == STRING || test->t == SYM), "\"string=?\": invalid type, expected String: %s", str(test, env)->sym);
+    ASSERT_FORMAT((test->t == STRING || test->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(test, env)->sym);
     cell = CDR(cell);
     while(NOT_NIL(cell))
     {
@@ -1348,7 +1369,7 @@ cell_t* string_equals(cell_t* cell, env_t env)
 	
 	cell_t* val = NIL;
 	EVAL(CAR(cell), env, val);
-	ASSERT_FORMAT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", str(val, env)->sym);
+	ASSERT_FORMAT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(val, env)->sym);
 	
 	if(val == NIL) return NIL;
 	
@@ -1359,7 +1380,7 @@ cell_t* string_equals(cell_t* cell, env_t env)
     return T;
 }
 
-cell_t* substr(cell_t* cell, env_t env)
+LISP_FUNC(substr)
 {
   cell_t* string = NIL;
   EVAL(CAR(cell), env, string);
@@ -1368,9 +1389,9 @@ cell_t* substr(cell_t* cell, env_t env)
   EVAL(CADR(cell), env, start);
   EVAL(CADDR(cell), env, end);
 
-  ASSERT_FORMAT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", str(string, env)->sym);
-  ASSERT_FORMAT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(start, env)->sym);
-  ASSERT_FORMAT((end->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(end, env)->sym);
+  ASSERT_FORMAT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", lisp_str(string, env)->sym);
+  ASSERT_FORMAT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", lisp_str(start, env)->sym);
+  ASSERT_FORMAT((end->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", lisp_str(end, env)->sym);
 
   int cend = strlen(string->sym);
   if(end != NIL)
@@ -1398,7 +1419,7 @@ cell_t* substr(cell_t* cell, env_t env)
 #define DECLARE_PREDICATE(name)				\
     SET(#name"?", CELL(FUNC, name##_predicate),env);
 #define DECLARE_FUNC(sym, name)			\
-    SET(sym, CELL(FUNC, name), env)
+    SET(sym, CELL(FUNC, lisp_##name), env)
 
 DEFINE_PREDICATE(list, LIST);
 DEFINE_PREDICATE(symbol, SYM);
@@ -1407,21 +1428,21 @@ DEFINE_PREDICATE(value, VAL);
 DEFINE_PREDICATE(error, ERROR);
 
 
-cell_t* is_nil(cell_t* cell, env_t env)
+LISP_FUNC(is_nil)
 {
     EVAL(cell, env, cell);
     return NOT_NIL(cell) ? F : T;
 }
 
-cell_t* file_exists_p(cell_t* cell, env_t env)
+LISP_FUNC(file_exists_p)
 {
-    cell = str(cell, env);
+    cell = lisp_str(cell, env);
     struct stat st;
     int s = stat(cell->sym, &st);
     return s == 0 ? T : F;
 }
 
-cell_t* newline(cell_t* cell, env_t env)
+LISP_FUNC(newline)
 {
   UNUSED(cell);
   UNUSED(env);
@@ -1429,7 +1450,7 @@ cell_t* newline(cell_t* cell, env_t env)
   return NIL;
 }
 
-cell_t* system_call(cell_t* cell, env_t env)
+LISP_FUNC(system_call)
 {
     cell_t* command = NIL;
     EVAL(cell, env, command);
@@ -1444,14 +1465,14 @@ cell_t* system_call(cell_t* cell, env_t env)
     return success > 0 ? T : F;
 }
 
-cell_t* lisp_raise(cell_t* cell, env_t env)
+LISP_FUNC(raise)
 {
   cell_t* exception = Eval(cell, env);
   // raise an exception here if this isn't SYM?
   return CELL(ERROR, exception->sym);
 }
 
-cell_t* raise_continuable(cell_t* cell, env_t env)
+LISP_FUNC(raise_continuable)
 {
   cell_t* exception = Eval(cell, env);
   cell_t* handler = GET("__exception-handler");
@@ -1461,7 +1482,7 @@ cell_t* raise_continuable(cell_t* cell, env_t env)
   return Eval(fn, env);
 }
 
-cell_t* with_exception_handler(cell_t* cell, env_t env)
+LISP_FUNC(with_exception_handler)
 {
     // TODO: Nest a scope in here, so things within the same scope
     // don't trigger the same exception handler
@@ -1496,7 +1517,7 @@ int main(int argc, char** argv)
 #endif
 
     env_t env = ENV();
-    DECLARE_FUNC("print-cell", lisp_print_cell);
+    DECLARE_FUNC("print-cell", print_cell);
     DECLARE_FUNC("display", display);
     DECLARE_FUNC("newline", newline);
     DECLARE_FUNC("+", plus);
@@ -1506,15 +1527,15 @@ int main(int argc, char** argv)
     DECLARE_FUNC("-", sub);
     DECLARE_FUNC("<", less);
     DECLARE_FUNC("not", not);
-    DECLARE_FUNC("if", lisp_if);
+    DECLARE_FUNC("if", if);
     DECLARE_FUNC("define", define);
     DECLARE_FUNC("set!", set);
     DECLARE_FUNC("lambda", lambda);
-    DECLARE_FUNC("read-file-text", lisp_read_file_text);
-    DECLARE_FUNC("write-file-text", lisp_write_file_text);
-    DECLARE_FUNC("eval", lisp_eval);
-    DECLARE_FUNC("while", lisp_while);
-    DECLARE_FUNC("parse", lisp_parse);
+    DECLARE_FUNC("read-file-text", read_file_text);
+    DECLARE_FUNC("write-file-text", write_file_text);
+    DECLARE_FUNC("eval", eval);
+    DECLARE_FUNC("while", while);
+    DECLARE_FUNC("parse", parse);
     DECLARE_FUNC("concat", concat);
     DECLARE_FUNC("cond", cond);
     DECLARE_FUNC("let", let);
@@ -1524,7 +1545,7 @@ int main(int argc, char** argv)
     DECLARE_FUNC("file-exists?", file_exists_p);
     DECLARE_FUNC("global", global);
     DECLARE_FUNC("system", system_call);
-    DECLARE_FUNC("raise", lisp_raise);
+    DECLARE_FUNC("raise", raise);
     DECLARE_FUNC("raise-continuable", raise_continuable);
     DECLARE_FUNC("with-exception-handler", with_exception_handler);
     DECLARE_PREDICATE(list);
