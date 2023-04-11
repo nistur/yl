@@ -1430,7 +1430,8 @@ DEFINE_PREDICATE(error, ERROR);
 
 LISP_FUNC(is_nil)
 {
-    EVAL(cell, env, cell);
+    cell = Eval(cell, env);
+    if(cell->t == ERROR) return T;
     return NOT_NIL(cell) ? F : T;
 }
 

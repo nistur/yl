@@ -38,7 +38,7 @@
 		       (set! lst (append lst val))))
 
 (define bootstrap/load-file (lambda (filename lst)
-			     (if (null? lst)
+			     (if (nil? lst)
 				 nil
 				 (let ((path (concat (car lst) "/" filename)))
 				   (if (file-exists? path)
