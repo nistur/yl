@@ -27,6 +27,14 @@
 
 #define MEM_PROFILE
 //#define USE_HASHED_SYMBOLS
+#define DEBUG
+
+#ifdef DEBUG
+# include <signal.h>
+# include <setjmp.h>
+# include <errno.h>
+# include <sys/ptrace.h>
+#endif
 
 // using stretchy buffers from nothings.org as it's a perfectly good
 // minimal solution, and I don't want to rewrite _everything_ from scratch
@@ -125,6 +133,40 @@
 
 #define CHECK(x) if(x->t == MAX_TYPE) return CELL(ERROR, "Attempting to access released memory");
 
+#ifdef DEBUG
+# if defined(__GNUC__) || defined(__clang__)
+static jmp_buf __e;
+int __debug = 0;
+void sigtrap_handler(int sig) {siglongjmp(__e, 1);}
+#  define BREAK()				\
+  if(__debug)					\
+  {						\
+    sigsetjmp(__e, 1);				\
+    __asm__ __volatile__("int3");		\
+  }
+# elif defined(_MSC_VER)
+#  define BREAK() __debugbreak()
+# else
+#  error "Unsupported compiler"
+# endif
+#else
+# define BREAK()
+#endif
+
+#define ASSERT(test, error)				\
+  if(!(test))						\
+  {							\
+    BREAK();						\
+    return CELL(ERROR, error);				\
+  }
+#define ASSERT_FORMAT(test, error, val)			\
+    if(!(test))						\
+    {							\
+	char __err[256];				\
+	sprintf(__err, error, val);			\
+	BREAK();					\
+	return CELL(ERROR, __err);			\
+    }
 
 #define FORCE 1
 //----------------------------------------------------------------------------//
@@ -610,16 +652,6 @@ ast_t Parse(const char* expr)
     r = Eval(c, e);			\
     if(r->t == ERROR) return r;
 
-#define ASSERT(test, error)			\
-    if(!(test)) return CELL(ERROR, error);
-#define ASSERT(test, error, val)			\
-    if(!(test))						\
-    {							\
-	char __err[256];				\
-	sprintf(__err, error, val);			\
-	return CELL(ERROR, __err);			\
-    }
-
 // Evaluate a list and return the result
 cell_t* Eval(cell_t* cell, env_t env)
 {
@@ -691,7 +723,7 @@ cell_t* Eval(cell_t* cell, env_t env)
     if(cell->t == SYM)
     {
 	cell_t* val = GET(cell->sym);
-	ASSERT(NOT_NIL(val), "reference to undefined identifier: %s", cell->sym);
+	ASSERT_FORMAT(NOT_NIL(val), "reference to undefined identifier: %s", cell->sym);
 	return val;
     }
     return cell;
@@ -1308,7 +1340,7 @@ cell_t* string_equals(cell_t* cell, env_t env)
 {
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
-    ASSERT((test->t == STRING || test->t == SYM), "\"string=?\": invalid type, expected String: %s", str(test, env)->sym);
+    ASSERT_FORMAT((test->t == STRING || test->t == SYM), "\"string=?\": invalid type, expected String: %s", str(test, env)->sym);
     cell = CDR(cell);
     while(NOT_NIL(cell))
     {
@@ -1316,7 +1348,7 @@ cell_t* string_equals(cell_t* cell, env_t env)
 	
 	cell_t* val = NIL;
 	EVAL(CAR(cell), env, val);
-	ASSERT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", str(val, env)->sym);
+	ASSERT_FORMAT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", str(val, env)->sym);
 	
 	if(val == NIL) return NIL;
 	
@@ -1336,9 +1368,9 @@ cell_t* substr(cell_t* cell, env_t env)
   EVAL(CADR(cell), env, start);
   EVAL(CADDR(cell), env, end);
 
-  ASSERT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", str(string, env)->sym);
-  ASSERT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(start, env)->sym);
-  ASSERT((end->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(end, env)->sym);
+  ASSERT_FORMAT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", str(string, env)->sym);
+  ASSERT_FORMAT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(start, env)->sym);
+  ASSERT_FORMAT((end->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", str(end, env)->sym);
 
   int cend = strlen(string->sym);
   if(end != NIL)
@@ -1408,11 +1440,11 @@ cell_t* system_call(cell_t* cell, env_t env)
     {
 	success = system(command->sym);
     }
-    RELEASE(command);
+    //    RELEASE(command);
     return success > 0 ? T : F;
 }
 
-cell_t* raise(cell_t* cell, env_t env)
+cell_t* lisp_raise(cell_t* cell, env_t env)
 {
   cell_t* exception = Eval(cell, env);
   // raise an exception here if this isn't SYM?
@@ -1452,7 +1484,18 @@ cell_t* with_exception_handler(cell_t* cell, env_t env)
 // main entry point
 int main(int argc, char** argv)
 {
-  env_t env = ENV();
+#ifdef DEBUG
+    if((__debug = (ptrace(PTRACE_TRACEME, 0, 1, 0) == -1 && errno == EPERM)))
+    {
+        struct sigaction sa;
+	sa.sa_handler = sigtrap_handler;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART | SA_SIGINFO;
+	sigaction(SIGTRAP, &sa, NULL);
+    }
+#endif
+
+    env_t env = ENV();
     DECLARE_FUNC("print-cell", lisp_print_cell);
     DECLARE_FUNC("display", display);
     DECLARE_FUNC("newline", newline);
@@ -1481,7 +1524,7 @@ int main(int argc, char** argv)
     DECLARE_FUNC("file-exists?", file_exists_p);
     DECLARE_FUNC("global", global);
     DECLARE_FUNC("system", system_call);
-    DECLARE_FUNC("raise", raise);
+    DECLARE_FUNC("raise", lisp_raise);
     DECLARE_FUNC("raise-continuable", raise_continuable);
     DECLARE_FUNC("with-exception-handler", with_exception_handler);
     DECLARE_PREDICATE(list);
