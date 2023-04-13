@@ -20,6 +20,7 @@
  * philipp@geyer.co.uk       contact@bitpuffin.com
  */
 
+#include <linux/prctl.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -30,10 +31,13 @@
 #define DEBUG
 
 #ifdef DEBUG
+# include <unistd.h>
 # include <signal.h>
 # include <setjmp.h>
 # include <errno.h>
 # include <sys/ptrace.h>
+# include <sys/wait.h>
+# include <sys/prctl.h>
 #endif
 
 // using stretchy buffers from nothings.org as it's a perfectly good
@@ -90,7 +94,7 @@
 # define SET(name,val,env) Set(name, val, env)
 #endif
 // Get a named value
-#define GET(name) Get(env, hash(name))
+#define GET(name) Get(env, name)
 // Replace a named value with a new one
 #ifdef USE_HASHED_SYMBOLS
 # define REPLACE(env, name, val) Replace(env, hash(name), val);
@@ -110,16 +114,16 @@
 // Number type
 #define NUMBER(x) CELL(VAL, x)
 // Push a value onto a list
-#define _PUSH_BACK(list, val, ctr)					\
-  {									\
-      cell_t* l = list;							\
-      while(NOT_NIL(CAR(l)))						\
-      {									\
-	if(IS_NIL(CDR(l))) l->pair.cdr = ctr;				\
-	l = CDR(l);							\
-      }									\
-      l->pair.car = val;						\
-  }
+#define _PUSH_BACK(list, val, ctr)                      \
+    {                                                   \
+        cell_t* l = list;                               \
+        while(NOT_NIL(CAR(l)))                          \
+        {                                               \
+            if(IS_NIL(CDR(l))) l->pair.cdr = ctr;       \
+            l = CDR(l);                                 \
+        }                                               \
+        l->pair.car = val;                              \
+    }
 #define PUSH_BACK(list, val) _PUSH_BACK(list, val, LIST());
 
 #define NOT_NIL(x) ((x != NULL) && ((x) != NIL))
@@ -138,12 +142,12 @@
 static jmp_buf __e;
 int __debug = 0;
 void sigtrap_handler(int sig) {UNUSED(sig); siglongjmp(__e, 1);}
-#  define BREAK()				\
-  if(__debug)					\
-  {						\
-    sigsetjmp(__e, 1);				\
-    __asm__ __volatile__("int3");		\
-  }
+#  define BREAK()                       \
+    if(__debug)                         \
+    {                                   \
+        sigsetjmp(__e, 1);				\
+        __asm__ __volatile__("int3");   \
+    }
 # elif defined(_MSC_VER)
 #  define BREAK() __debugbreak()
 # else
@@ -153,28 +157,41 @@ void sigtrap_handler(int sig) {UNUSED(sig); siglongjmp(__e, 1);}
 # define BREAK()
 #endif
 
-#define ASSERT(test, error)				\
-  if(!(test))						\
-  {							\
-    BREAK();						\
-    return CELL(ERROR, error);				\
-  }
-#define ASSERT_FORMAT(test, error, val)			\
-    if(!(test))						\
-    {							\
-	char __err[256];				\
-	sprintf(__err, error, val);			\
-	BREAK();					\
-	return CELL(ERROR, __err);			\
+#define ASSERT(test, error)                 \
+    if(!(test))                             \
+    {                                       \
+        BREAK();                            \
+        return CELL(ERROR, error);          \
     }
-#define ASSERT_RETURN(test, error)					\
-  if (!(test))								\
-  {									\
-      BREAK();								\
-      return;								\
-  }
+#define ASSERT_FORMAT(test, error, val)			\
+    if(!(test))                                 \
+    {                                           \
+        char __err[256];                        \
+        sprintf(__err, error, val);             \
+        BREAK();                                \
+        return CELL(ERROR, __err);              \
+    }
+#define ASSERT_RETURN(test, error)          \
+    if (!(test))                            \
+    {                                       \
+        BREAK();                            \
+        return;								\
+    }
 
-#define LISP_FUNC(name)\
+#define ERROR(err)                              \
+    return CELL(ERROR, err);
+
+#define ERROR_FORMAT(err, ...)                  \
+    char __err[256];                            \
+    sprintf(__err, err, ##__VA_ARGS__);         \
+    ERROR(__err);
+
+
+#define EVAL(c, e, r)                           \
+    r = Eval(c, e);                             \
+    if(r->t == ERROR) return r;
+
+#define LISP_FUNC(name)                         \
   cell_t* lisp_##name(cell_t* cell, env_t env)
 //----------------------------------------------------------------------------//
 // Types                                                                      //
@@ -235,13 +252,13 @@ typedef struct _cell_t
     cell_type t;
     union
     {
-	sym_t sym;
-	int val;
-	func func;
-	struct _cell_t* inner;
-	pair_t pair;
+        sym_t sym;
+        int val;
+        func func;
+        struct _cell_t* inner;
+        pair_t pair;
 #ifdef MEM_PROFILE
-      void* mem;
+        void* mem;
 #endif
     };
     struct _cell_t* env; // do not like having this here
@@ -275,8 +292,8 @@ int hash(const char* str)
     int h = 5381;
     while(*str)
     {
-	h = ((h <<5) + h) + *str;
-	++str;
+        h = ((h <<5) + h) + *str;
+        ++str;
     }
     return h;
 }
@@ -284,17 +301,17 @@ int hash(const char* str)
 // Reading file
 sym_t read_file_text(const sym_t fname)
 {
-  // TODO: check file exists!
-  FILE* fp = fopen(fname, "r");
-  fseek(fp, 0L, SEEK_END);
-  long size = ftell(fp);
-  fseek(fp, 0L, SEEK_SET);
-  sym_t buffer=malloc(size + 1);
-  fread(buffer, 1, size, fp);
-  buffer[size] = '\0';
-  fclose(fp);
-
-  return buffer;
+    // TODO: check file exists!
+    FILE* fp = fopen(fname, "r");
+    fseek(fp, 0L, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0L, SEEK_SET);
+    sym_t buffer=malloc(size + 1);
+    fread(buffer, 1, size, fp);
+    buffer[size] = '\0';
+    fclose(fp);
+    
+    return buffer;
 }
 
 void write_file_text(const sym_t fname, const sym_t content)
@@ -308,66 +325,66 @@ void write_file_text(const sym_t fname, const sym_t content)
 cell_t *__mem;
 cell_t* mem_list_ctr()
 {
-  void* malloc_empty(size_t);
-  cell_t* ptr = malloc_empty(sizeof(cell_t));
-  ptr->t = LIST;
-  return ptr;
+    void* malloc_empty(size_t);
+    cell_t* ptr = malloc_empty(sizeof(cell_t));
+    ptr->t = LIST;
+    return ptr;
 }
 #endif
 
 void* malloc_empty(size_t size)
 {
-  void* ptr = malloc(size);
-  memset(ptr, 0, size);
-  return ptr;
+    void* ptr = malloc(size);
+    memset(ptr, 0, size);
+    return ptr;
 }
 
 void* malloc_yl(size_t size)
 {
-  void* ptr = malloc_empty(size);
+    void* ptr = malloc_empty(size);
 #ifdef MEM_PROFILE
-  cell_t* _cell(cell_type t, void* val);
-  if(__mem == NULL)
-  {
-    __mem = mem_list_ctr();
-  }
-  cell_t* track = malloc_empty(sizeof(cell_t));
-  track->t = MEM;
-  track->mem = ptr;
-  
-  _PUSH_BACK(__mem, track, mem_list_ctr());
+    cell_t* _cell(cell_type t, void* val);
+    if(__mem == NULL)
+    {
+        __mem = mem_list_ctr();
+    }
+    cell_t* track = malloc_empty(sizeof(cell_t));
+    track->t = MEM;
+    track->mem = ptr;
+    
+    _PUSH_BACK(__mem, track, mem_list_ctr());
 #endif
-  return ptr;
+    return ptr;
 }
 
 void free_yl(void* ptr)
 {
 #ifdef MEM_PROFILE
-  cell_t* cell = __mem;
-  while(NOT_NIL(cell))
-  {
-    if(cell->pair.car->mem == ptr) break;
-    cell = cell->pair.cdr;
-  }
-
-  if(cell == NIL || cell == NULL)
-  {
-      printf("non-tracked memory freed\n");
-      printf("  %p\n", ptr);
-      void print_cell(cell_t*);
-      print_cell((cell_t*)ptr);
-  }
-  else
-  {
-    //    free(cell->pair.car->mem);
-    free(cell->pair.car);
-    cell_t* cdr = CDR(cell);
-    cell->pair.car = CAR(cdr);
-    cell->pair.cdr = CDR(cdr);
-    free(cdr);
-  }
+    cell_t* cell = __mem;
+    while(NOT_NIL(cell))
+    {
+        if(cell->pair.car->mem == ptr) break;
+        cell = cell->pair.cdr;
+    }
+    
+    if(cell == NIL || cell == NULL)
+    {
+        printf("non-tracked memory freed\n");
+        printf("  %p\n", ptr);
+        void print_cell(cell_t*);
+        print_cell((cell_t*)ptr);
+    }
+    else
+    {
+        //    free(cell->pair.car->mem);
+        free(cell->pair.car);
+        cell_t* cdr = CDR(cell);
+        cell->pair.car = CAR(cdr);
+        cell->pair.cdr = CDR(cdr);
+        free(cdr);
+    }
 #endif
-  //free(ptr);
+    //free(ptr);
 }
 
 //----------------------------------------------------------------------------//
@@ -397,67 +414,67 @@ cell_t* _cell(cell_type t, void* val)
     
     if(t == LIST || t == FUNL)
     {
-	cell->pair.car = NOT_NIL(val) ? val : NIL;
-	cell->pair.cdr = NIL;
+        cell->pair.car = NOT_NIL(val) ? val : NIL;
+        cell->pair.cdr = NIL;
     }
     else if(t == QUOT)
     {
-      cell->inner = NOT_NIL(val) ? val : NIL;
+        cell->inner = NOT_NIL(val) ? val : NIL;
     }
     else if(t == VAL)
     {
-	cell->val = (number_t)val;
+        cell->val = (number_t)val;
     }
     else if(t == STRING || t == SYM || t == ERROR)
     {
-	int len = strlen((char*)val)+1;
-	cell->sym = malloc(len);
-	memcpy(cell->sym, val, len);
+        int len = strlen((char*)val)+1;
+        cell->sym = malloc(len);
+        memcpy(cell->sym, val, len);
     }
 #ifdef MEM_PROFILE
     else if(t == MEM)
     {
-      cell->mem = val;
+        cell->mem = val;
     }
 #endif
     else
     {
-	cell->sym = val;
+        cell->sym = val;
     }
     return cell;
 }
 
 // Retrieve a hashed, named cell from the current scope
-cell_t* Get(env_t env, int namehash)
+cell_t* Get(env_t env, const char* name)
 {
     cell_t* tempenv = CDR(env);
     cell_t* parent = CAR(env);
     while(NOT_NIL(tempenv))
     {
-	cell_t* pair = CAR(tempenv);
+        cell_t* pair = CAR(tempenv);
 #ifdef USE_HASHED_SYMBOLS
-	if(CAR(pair)->t == VAL && CAR(pair)->val == namehash)
+        if(CAR(pair)->t == VAL && CAR(pair)->val == namehash)
 #else
-	if(CAR(pair)->t == STRING && hash(CAR(pair)->sym) == namehash)
+            if(CAR(pair)->t == STRING && hash(CAR(pair)->sym) == hash(name))
 #endif
-	{
-	    return CDR(pair);
-	}
-	
-	tempenv = CDR(tempenv);
+            {
+                return CDR(pair);
+            }
+        
+        tempenv = CDR(tempenv);
     }
     // If we got here, we didn't find it in the curren
     // scope, so try going up one level
     if(NOT_NIL(parent))
     {
-	return Get(parent, namehash);
+        return Get(parent, name);
     }
-    return NIL;
+    ERROR_FORMAT("reference to undefined identifier: %s", name);
 }
 #ifdef USE_HASHED_SYMBOLS
 void Set(int name, cell_t* val, env_t env)
 #else
-void Set(const char* name, cell_t* val, env_t env)
+    void Set(const char* name, cell_t* val, env_t env)
 #endif
 {
     cell_t* entry = LIST();
@@ -491,11 +508,15 @@ static void str_copy_escaped(char* dest, const char* src, int len) {
         if (escapeFlag == 0) {
             if (src[i] == '\\') {
                 escapeFlag = 1;
-            } else {
+            }
+            else
+            {
                 dest[destIndex] = src[i];
                 ++destIndex;
             }
-        } else {
+        }
+        else
+        {
             dest[destIndex] = escape_char(src[i]);
             destIndex++;
             escapeFlag = 0;
@@ -511,100 +532,104 @@ const char* ParseToken(cell_t** cell, const char* expr)
 {
     const char* pTokStart = expr;
     const char* pTokEnd = pTokStart + 1;
-
+    
     switch(*pTokStart)
     {
     case '\0':
-	// early out - the end
-	*cell = NIL;
-	return pTokStart;
+        // early out - the end
+        *cell = NIL;
+        return pTokStart;
     case '\'':
-	*cell = QUOTE();
-	return ParseToken(&(*cell)->inner, pTokEnd);
+        *cell = QUOTE();
+        return ParseToken(&(*cell)->inner, pTokEnd);
     case '"':
     {
-	int escapeCount = 0;
-	++pTokEnd;
-	while(strchr(STRING_TERMINALS, *pTokEnd) == NULL) {
-	    if (*pTokEnd == '\\') {
-		++escapeCount;
-		//we wanna skip the char after \ (it could be \ itself)
-		++pTokEnd;
-		if (strchr(STRING_TERMINALS, *pTokEnd) != NULL) {
-		    // but not if it's the end of string
+        int escapeCount = 0;
+        ++pTokEnd;
+        while(strchr(STRING_TERMINALS, *pTokEnd) == NULL) {
+            if (*pTokEnd == '\\')
+            {
+                ++escapeCount;
+                //we wanna skip the char after \ (it could be \ itself)
+                ++pTokEnd;
+                if (strchr(STRING_TERMINALS, *pTokEnd) != NULL)
+                {
+                    // but not if it's the end of string
 //		    break;
-		}
-		++pTokEnd;
-	    } else {
-		++pTokEnd;
-	    }
-	}
-	
-	const char* strEnd = pTokEnd;
-	const char lastChar = *pTokEnd;
-	
-	const char* strStart = pTokStart+1;
-	int len = strEnd - strStart;
-	char* sym = malloc(len + 1 - escapeCount);
-	str_copy_escaped(sym, strStart, len);
-	sym[len] = 0;
+                }
+                ++pTokEnd;
+            }
+            else
+            {
+                ++pTokEnd;
+            }
+        }
+        
+        const char* strEnd = pTokEnd;
+        const char lastChar = *pTokEnd;
+        
+        const char* strStart = pTokStart+1;
+        int len = strEnd - strStart;
+        char* sym = malloc(len + 1 - escapeCount);
+        str_copy_escaped(sym, strStart, len);
+        sym[len] = 0;
         *cell = CELL(STRING, sym);
-	free(sym);
-	if (lastChar == '"') pTokEnd++;
-	return pTokEnd;
+        free(sym);
+        if (lastChar == '"') pTokEnd++;
+        return pTokEnd;
     }
     case '(':
-	*cell = LIST();
-	return ParseList(*cell, pTokEnd);
+        *cell = LIST();
+        return ParseList(*cell, pTokEnd);
     case ')':
-	*cell = NIL;
-	return pTokEnd;
+        *cell = NIL;
+        return pTokEnd;
     case ';':
-      // scan to the end of the line
-      while(*pTokEnd != '\n' && *pTokEnd !=0) ++pTokEnd;
-      *cell = COMMENT;
-      return pTokEnd;
+        // scan to the end of the line
+        while(*pTokEnd != '\n' && *pTokEnd !=0) ++pTokEnd;
+        *cell = COMMENT;
+        return pTokEnd;
     case '#':
     {
         if(*pTokEnd == ';')
-	{
-	  cell_t* datum = NIL;
-	  pTokEnd = ParseToken(&datum, pTokEnd+1);
-	  //	  RELEASE(datum); // this one has been commented out
-	  *cell = COMMENT;
-	  return pTokEnd;
-	}
-	if(*pTokEnd == '|')
-	{
-	  // this is a block comment, look for the end.
-	  ++pTokEnd;
-	  while((*pTokEnd != '|') && (*(pTokEnd+1) != '#') && (*(pTokEnd+1) != 0)) ++pTokEnd;
-	  *cell = COMMENT;
-	  return pTokEnd+2;
-	}
+        {
+            cell_t* datum = NIL;
+            pTokEnd = ParseToken(&datum, pTokEnd+1);
+            //	  RELEASE(datum); // this one has been commented out
+            *cell = COMMENT;
+            return pTokEnd;
+        }
+        if(*pTokEnd == '|')
+        {
+            // this is a block comment, look for the end.
+            ++pTokEnd;
+            while((*pTokEnd != '|') && (*(pTokEnd+1) != '#') && (*(pTokEnd+1) != 0)) ++pTokEnd;
+            *cell = COMMENT;
+            return pTokEnd+2;
+        }
     }
     }
-
+    
     if( (*pTokStart >= '0' && *pTokStart <= '9') || *pTokStart == '-' )
     {
-      // TODO: Proper number parsing - allow different bases etc
-	while((*pTokEnd >= '0' && *pTokEnd <= '9') || *pTokEnd == '.')
-	    ++pTokEnd;
-	int len = pTokEnd - pTokStart;
-	char* sym = malloc(len + 1);
-	memcpy(sym, pTokStart, len);
-	sym[len] = 0;
-	*cell = CELL(VAL, ATON(sym));
-	free(sym);
-	return pTokEnd;
+        // TODO: Proper number parsing - allow different bases etc
+        while((*pTokEnd >= '0' && *pTokEnd <= '9') || *pTokEnd == '.')
+            ++pTokEnd;
+        int len = pTokEnd - pTokStart;
+        char* sym = malloc(len + 1);
+        memcpy(sym, pTokStart, len);
+        sym[len] = 0;
+        *cell = CELL(VAL, ATON(sym));
+        free(sym);
+        return pTokEnd;
     }
-
+    
     // everything else, we convert to a symbol
     
     while(*pTokEnd != '\0' && *pTokEnd !=  ' ' &&
-	  *pTokEnd != '\n' && *pTokEnd != '\t' &&
-	  *pTokEnd != '('  && *pTokEnd !=  ')' )
-	++pTokEnd;
+          *pTokEnd != '\n' && *pTokEnd != '\t' &&
+          *pTokEnd != '('  && *pTokEnd !=  ')' )
+        ++pTokEnd;
     int len = pTokEnd - pTokStart;
     char* sym = malloc(len + 1);
     memcpy(sym, pTokStart, len);
@@ -617,32 +642,32 @@ const char* ParseToken(cell_t** cell, const char* expr)
 const char* ParseList(cell_t* list, const char* expr)
 {
     const char* pTokStart = expr;
-
-#define SKIP_WHITESPACE(__x)						\
+    
+#define SKIP_WHITESPACE(__x)                                    \
     while(*__x == ' ' || *__x == '\t' || *__x == '\n' ||		\
-	  *__x == '\r' )						\
-	++__x;
-
+          *__x == '\r' )                                        \
+        ++__x;
+    
     SKIP_WHITESPACE(pTokStart);
-
+    
     const char* pTokEnd = pTokStart + 1;
-
+    
     while(1)
     {
-	SKIP_WHITESPACE(pTokStart);
-	cell_t* cell = NIL;
-	pTokEnd = ParseToken(&cell, pTokStart);
-
-	if(cell != COMMENT)
-	{
-	    RETAIN(cell);
-	    PUSH_BACK(list, cell);
-	}
-
-	
-	// next token
-	pTokStart = pTokEnd;
-	if( *pTokEnd == '\0' || *pTokStart == '\0' || cell == NIL ) break;
+        SKIP_WHITESPACE(pTokStart);
+        cell_t* cell = NIL;
+        pTokEnd = ParseToken(&cell, pTokStart);
+        
+        if(cell != COMMENT)
+        {
+            RETAIN(cell);
+            PUSH_BACK(list, cell);
+        }
+        
+        
+        // next token
+        pTokStart = pTokEnd;
+        if( *pTokEnd == '\0' || *pTokStart == '\0' || cell == NIL ) break;
     }
     return pTokEnd;
 }
@@ -655,83 +680,77 @@ ast_t Parse(const char* expr)
     return ast;
 }
 
-#define EVAL(c, e, r)			\
-    r = Eval(c, e);			\
-    if(r->t == ERROR) return r;
-
 // Evaluate a list and return the result
 cell_t* Eval(cell_t* cell, env_t env)
 {
     // if the value is quoted, don't evaluate it
     if(cell->t == QUOT)
     {
-      return cell->inner;
+        return cell->inner;
     }
-
+    
     if(cell->t == LIST)
     {
-	cell_t* fn = NIL;
-	EVAL(CAR(cell), env, fn);
-	
-	switch(fn->t)
-	{
-	case FUNC:
-	{
-	    cell = fn->func(CDR(cell), env);
-	    return cell;
-	}
-	case FUNL:
-	{
-	    cell_t* params = CDR(cell);
-
-	    if(params->t == LIST)
-	    {
-	        cell_t* name = fn->pair.car;
-		CHECK(name);
-		cell_t* val = params;
-		CHECK(val);
-		
-		env_t scope = ENV();
-		RETAIN(scope);
-		scope->pair.car = fn->env;
-		while(NOT_NIL(name) && NOT_NIL(CAR(name)) && NOT_NIL(val) && NOT_NIL(CAR(val)))
-		{
-		    cell_t* v = NIL;
-		    EVAL(CAR(val), env, v);
-		    SET(CAR(name)->sym,
-			v,
-			scope);
-		    name = CDR(name);
-		    val = CDR(val);
-		}
-
-		cell_t* res = NIL;
-		fn = fn->pair.cdr;
-		while(NOT_NIL(CAR(fn)))
-		{
-		    CHECK(fn);
-		    CHECK(CAR(fn));
-		    EVAL(CAR(fn), scope, res);
-		    fn = CDR(fn);
-		}
-		
-		//		RELEASE_ENV(scope);
-		return res;
-	    }
-	}
-	break;
-	default:
-	    break;
-	}
-	return fn;
+        cell_t* fn = NIL;
+        EVAL(CAR(cell), env, fn);
+        
+        switch(fn->t)
+        {
+        case FUNC:
+        {
+            cell = fn->func(CDR(cell), env);
+            return cell;
+        }
+        case FUNL:
+        {
+            cell_t* params = CDR(cell);
+            
+            if(params->t == LIST)
+            {
+                cell_t* name = fn->pair.car;
+                CHECK(name);
+                cell_t* val = params;
+                CHECK(val);
+                
+                env_t scope = ENV();
+                RETAIN(scope);
+                scope->pair.car = fn->env;
+                while(NOT_NIL(name) && NOT_NIL(CAR(name)) && NOT_NIL(val) && NOT_NIL(CAR(val)))
+                {
+                    cell_t* v = NIL;
+                    EVAL(CAR(val), env, v);
+                    SET(CAR(name)->sym,
+                        v,
+                        scope);
+                    name = CDR(name);
+                    val = CDR(val);
+                }
+                
+                cell_t* res = NIL;
+                fn = fn->pair.cdr;
+                while(NOT_NIL(CAR(fn)))
+                {
+                    CHECK(fn);
+                    CHECK(CAR(fn));
+                    EVAL(CAR(fn), scope, res);
+                    fn = CDR(fn);
+                }
+                
+                //		RELEASE_ENV(scope);
+                return res;
+            }
+        }
+        break;
+        default:
+            break;
+        }
+        return fn;
     }
-
+    
     // If we find a symbol, look it up and replace with the relevant value
     if(cell->t == SYM)
     {
-	cell_t* val = GET(cell->sym);
-	ASSERT_FORMAT(NOT_NIL(val), "reference to undefined identifier: %s", cell->sym);
-	return val;
+        return GET(cell->sym);
     }
     return cell;
 }
@@ -743,7 +762,7 @@ void Free(cell_t** cell)
        *cell == NIL || *cell == T ||
        *cell == F ||
        (*cell)->t > MAX_TYPE)
-      return; // don't free these
+        return; // don't free these
     
     switch((*cell)->t)
     {
@@ -751,39 +770,39 @@ void Free(cell_t** cell)
     case SYM:
     case ERROR:
     case ERROR_HANDLED:
-	if((*cell)->sym)
-	{
-	    free((*cell)->sym);
-	    (*cell)->sym = NULL;
-	}
-	break;
+        if((*cell)->sym)
+        {
+            free((*cell)->sym);
+            (*cell)->sym = NULL;
+        }
+        break;
     case LIST:
     {
-	if(NOT_NIL((*cell)->pair.car)) RELEASE((*cell)->pair.car);
-	if(NOT_NIL((*cell)->pair.cdr)) RELEASE((*cell)->pair.cdr);
-	break;
+        if(NOT_NIL((*cell)->pair.car)) RELEASE((*cell)->pair.car);
+        if(NOT_NIL((*cell)->pair.cdr)) RELEASE((*cell)->pair.cdr);
+        break;
     }
     break;
     case QUOT:
-	RELEASE((*cell)->inner);
-	break;
+        RELEASE((*cell)->inner);
+        break;
     case FUNL:
-	RELEASE((*cell)->env);
-      break;
+        RELEASE((*cell)->env);
+        break;
     case VAL:
     case BOOL:
     case NUM:
     case FUNC:
     case MAX_TYPE:
-      break; // these don't have any additional memory allocated
+        break; // these don't have any additional memory allocated
 #ifdef MEM_PROFILE
     case MEM:
-      ASSERT_RETURN(0, "Freeing memory tracker data");
+        ASSERT_RETURN(0, "Freeing memory tracker data");
 #endif
     }
     ___i--;
     ++___r;
-
+    
     //memset(*cell, 0, sizeof(cell_t));
     (*cell)->t = MAX_TYPE;
     free_yl(*cell);
@@ -795,31 +814,31 @@ void Free(cell_t** cell)
 #ifdef USE_HASHED_SYMBOLS
 cell_t* Replace(env_t env, int name, cell_t* val)
 #else
-cell_t* Replace(env_t env, const char* name, cell_t* val)
+    cell_t* Replace(env_t env, const char* name, cell_t* val)
 #endif
 {
     env_t scope = env;
     while(scope)
     {
-	cell_t* tempenv = CDR(scope);
-	cell_t* parent = CAR(scope);
-	while(NOT_NIL(tempenv))
-	{
-	    cell_t* entry = CAR(tempenv);
+        cell_t* tempenv = CDR(scope);
+        cell_t* parent = CAR(scope);
+        while(NOT_NIL(tempenv))
+        {
+            cell_t* entry = CAR(tempenv);
 #ifdef USE_HASHED_SYMBOLS
-	    if(CAR(entry)->t == STRING && CAR(entry)->val == name)
+            if(CAR(entry)->t == STRING && CAR(entry)->val == name)
 #else
-	    if(CAR(entry)->t == STRING && hash(CAR(entry)->sym) == hash(name))
+                if(CAR(entry)->t == STRING && hash(CAR(entry)->sym) == hash(name))
 #endif
-	    {
-	      //		RELEASE(entry->pair.cdr);
-		entry->pair.cdr = val;
-		return val;
-	    }
-	    tempenv = CDR(tempenv);
-	}
-	
-	scope = parent;
+                {
+                    //		RELEASE(entry->pair.cdr);
+                    entry->pair.cdr = val;
+                    return val;
+                }
+            tempenv = CDR(tempenv);
+        }
+        
+        scope = parent;
     }
     // we couldn't find a matching name, so just set it
     Set(name, val, env);
@@ -837,7 +856,7 @@ LISP_FUNC(parse)
     ast_t ast = LIST();
     if(cell->t == STRING)
     {
-	ParseList(ast, cell->sym);
+        ParseList(ast, cell->sym);
     }
     //    RELEASE(cell);
     return ast;
@@ -853,61 +872,61 @@ LISP_FUNC(str)
     {
     case SYM:
         res = CELL(STRING, val->sym);
-	break;
+        break;
     case ERROR:
     case ERROR_HANDLED:
     case STRING:
-	res = val;
-	break;
+        res = val;
+        break;
     case VAL:
     {
-	buff = malloc(128);
-	if(NOT_NIL(val))
-	    sprintf(buff, "%d", val->val);
-	else
-	    sprintf(buff, "NIL");
-	res = CELL(STRING, buff);
-	free(buff);
-	break;
+        buff = malloc(128);
+        if(NOT_NIL(val))
+            sprintf(buff, "%d", val->val);
+        else
+            sprintf(buff, "NIL");
+        res = CELL(STRING, buff);
+        free(buff);
+        break;
     }
     case LIST:
     {
-	buff = sb_add(buff, 2);
-	sprintf(buff, "(");
-	int p = 1;
-	while(NOT_NIL(val) && NOT_NIL(CAR(val)))
-	{
-	    cell_t* strcar = lisp_str(CAR(val), env);
-	    int l = strlen(strcar->sym);
-	    char* pbuff = sb_add(buff, l+1);
-	    sprintf(pbuff-1, "%s ", strcar->sym);
-	    p += l+1;
-	    //	    RELEASE(strcar);
-	    val = CDR(val);
-	}
-
-	if (NOT_NIL(val))
-	{
-	    if(val->t != LIST || (NOT_NIL(CAR(val)) && NOT_NIL(CDR(val))))
-	    {
-	      cell_t* strcar = lisp_str(val, env);
-	      int l = strlen(strcar->sym);
-	      char* pbuff = sb_add(buff, l+3);
-	      sprintf(pbuff-1, ". %s ", strcar->sym);
-	      p += l+3;
-	    }
-	}
-
-	char* pbuff = sb_add(buff, p+2);
-	pbuff[-2] = ')';
-	pbuff[-1] = '\0';
-
-	char* strbuf = malloc(p+2);
-	memcpy(strbuf, buff, p+2);
+        buff = sb_add(buff, 2);
+        sprintf(buff, "(");
+        int p = 1;
+        while(NOT_NIL(val) && NOT_NIL(CAR(val)))
+        {
+            cell_t* strcar = lisp_str(CAR(val), env);
+            int l = strlen(strcar->sym);
+            char* pbuff = sb_add(buff, l+1);
+            sprintf(pbuff-1, "%s ", strcar->sym);
+            p += l+1;
+            //	    RELEASE(strcar);
+            val = CDR(val);
+        }
+        
+        if (NOT_NIL(val))
+        {
+            if(val->t != LIST || (NOT_NIL(CAR(val)) && NOT_NIL(CDR(val))))
+            {
+                cell_t* strcar = lisp_str(val, env);
+                int l = strlen(strcar->sym);
+                char* pbuff = sb_add(buff, l+3);
+                sprintf(pbuff-1, ". %s ", strcar->sym);
+                p += l+3;
+            }
+        }
+        
+        char* pbuff = sb_add(buff, p+2);
+        pbuff[-2] = ')';
+        pbuff[-1] = '\0';
+        
+        char* strbuf = malloc(p+2);
+        memcpy(strbuf, buff, p+2);
         res = CELL(STRING, strbuf);
-	sb_free(buff);
-	free(strbuf);
-	break;
+        sb_free(buff);
+        free(strbuf);
+        break;
     }
     case BOOL:
     case NUM:
@@ -918,7 +937,7 @@ LISP_FUNC(str)
 #ifdef MEM_PROFILE
     case MEM:
 #endif
-      break;
+        break;
     };
     return res;
 }
@@ -939,17 +958,17 @@ LISP_FUNC(plus)
     number_t val = 0;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
-	cell_t* res = NIL;
-	EVAL(CAR(cell), env, res);
-	if(res->t == SYM || res->t == STRING)
-	{
-	    val += ATON(res->sym);
-	}
-	else if( res->t == VAL)
-	{
-	    val += res->val;
-	}
-	cell = CDR(cell);
+        cell_t* res = NIL;
+        EVAL(CAR(cell), env, res);
+        if(res->t == SYM || res->t == STRING)
+        {
+            val += ATON(res->sym);
+        }
+        else if( res->t == VAL)
+        {
+            val += res->val;
+        }
+        cell = CDR(cell);
     }
     return CELL( VAL, val );
 }
@@ -960,23 +979,23 @@ LISP_FUNC(sub)
     int first = 1;
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
-	cell_t* res = NIL;
-	EVAL(CAR(cell), env, res);
-	if(res->t == SYM || res->t == STRING)
-	{
-	    val-= ATON(res->sym);
-	}
-	else if( res->t == VAL)
-	{
-	    val -= res->val;
-	}
-
-	if( first )
-	{
-	    first = 0;
-	    val = -val;
-	}
-	cell = CDR(cell);
+        cell_t* res = NIL;
+        EVAL(CAR(cell), env, res);
+        if(res->t == SYM || res->t == STRING)
+        {
+            val-= ATON(res->sym);
+        }
+        else if( res->t == VAL)
+        {
+            val -= res->val;
+        }
+        
+        if( first )
+        {
+            first = 0;
+            val = -val;
+        }
+        cell = CDR(cell);
     }
     return CELL( VAL, val );
 }
@@ -988,10 +1007,10 @@ LISP_FUNC(set)
     EVAL(CAR(cell), env, name);
     if( NOT_NIL(name) && name->t == SYM)
     {
-	cell_t* val = NIL;
-	EVAL(CADR(cell), env, val);
-
-	REPLACE(env,name->sym, val);
+        cell_t* val = NIL;
+        EVAL(CADR(cell), env, val);
+        
+        REPLACE(env,name->sym, val);
     }
     return NIL;
 }
@@ -1002,10 +1021,10 @@ LISP_FUNC(define)
     RETAIN(name);
     if( NOT_NIL(name) && name->t == SYM)
     {
-	cell_t* val = NIL;
-	EVAL(CADR(cell), env, val);
-	RETAIN(val);
-	REPLACE(env, name->sym, val);
+        cell_t* val = NIL;
+        EVAL(CADR(cell), env, val);
+        RETAIN(val);
+        REPLACE(env, name->sym, val);
     }
     //    RELEASE(name);
     return NIL;
@@ -1019,17 +1038,17 @@ LISP_FUNC(concat)
     while( NOT_NIL(cell) && NOT_NIL(CAR(cell)) )
     {
         cell_t* res = lisp_str(CAR(cell), env);
-	int len = strlen(res->sym)+1;
-	char* pVal = sb_add(val, len);
-	if(pVal == NULL) break;
-	// using sprintf to repeatedly concatenate
-	// because it means I don't have to worry about null terminators
-	// Disable GCC warning as this doesn't understand the sb_add reallocates
+        int len = strlen(res->sym)+1;
+        char* pVal = sb_add(val, len);
+        if(pVal == NULL) break;
+        // using sprintf to repeatedly concatenate
+        // because it means I don't have to worry about null terminators
+        // Disable GCC warning as this doesn't understand the sb_add reallocates
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wrestrict"
-	sprintf(val, "%s%s", val, res->sym);
+        sprintf(val, "%s%s", val, res->sym);
 #pragma GCC diagnostic pop
-	cell = CDR(cell);
+        cell = CDR(cell);
     }
     cell = CELL(STRING, val);
     sb_free(val);
@@ -1045,7 +1064,7 @@ LISP_FUNC(cons)
     RETAIN(CDR(lst));
     return (cell_t*)lst;
 }
-  
+
 
 LISP_FUNC(car)
 {
@@ -1060,10 +1079,10 @@ LISP_FUNC(cdr)
     if(cell->t == LIST &&
        IS_NIL(CAR(cell)) &&
        IS_NIL(CDR(cell)))
-      // If we're at the end of a list, this is
-      // provided by (NIL . NIL) but we don't want
-      // CDR to return this, so instead just return NIL
-      return NIL;
+        // If we're at the end of a list, this is
+        // provided by (NIL . NIL) but we don't want
+        // CDR to return this, so instead just return NIL
+        return NIL;
     return cell;
 }
 
@@ -1071,18 +1090,18 @@ LISP_FUNC(cdr)
 LISP_FUNC(lambda)
 {
     {
-	cell_t* val = FUNL();
-	if(cell->t == LIST)
-	{
-	    cell_t* list = cell;
-	    val->pair.car = CAR(list);
-	    RETAIN(CAR(val));
-	    val->pair.cdr = CDR(list);
-	    RETAIN(CDR(val));
-	    RETAIN(env);
-	    val->env = env;
-	    return val;
-	}
+        cell_t* val = FUNL();
+        if(cell->t == LIST)
+        {
+            cell_t* list = cell;
+            val->pair.car = CAR(list);
+            RETAIN(CAR(val));
+            val->pair.cdr = CDR(list);
+            RETAIN(CDR(val));
+            RETAIN(env);
+            val->env = env;
+            return val;
+        }
     }
     return NIL;
 }
@@ -1093,7 +1112,7 @@ LISP_FUNC(less)
     cell_t* val2 = NIL;
     EVAL(CAR(cell), env, val1);
     EVAL(CADR(cell), env, val2);
-
+    
     int v1 = val1->t == SYM || val1->t == STRING ? atoi(((cell_t*)val1)->sym) : ((cell_t*)val1)->val;
     int v2 = val2->t == SYM || val2->t == STRING ? atoi(((cell_t*)val2)->sym) : ((cell_t*)val2)->val;
     
@@ -1103,7 +1122,7 @@ LISP_FUNC(less)
 LISP_FUNC(not)
 {
     EVAL(cell, env, cell);
-
+    
     return (cell == F || cell == NIL) ? T : F;
 }
 
@@ -1113,7 +1132,7 @@ LISP_FUNC(if)
     EVAL(CAR(cell), env, test);
     if( test && test != NIL && test != F && ((cell_t*)test)->val != 0)
     {
-	return Eval(CADR(cell), env);
+        return Eval(CADR(cell), env);
     }
     return Eval(CADDR(cell), env);
 }
@@ -1123,9 +1142,9 @@ LISP_FUNC(read_file_text)
     cell_t* nameval = NIL;
     EVAL(cell, env, nameval);
     char* namestr = ((cell_t*)nameval)->sym;
-
+    
     char* contentstr = read_file_text(namestr);
-
+    
     // do a bit of juggling here - we want the cell to own the string
     // but we don't want to have to copy it, so instead, initialise with
     // empty string, then re-free it and swap our content in
@@ -1142,11 +1161,11 @@ LISP_FUNC(write_file_text)
     EVAL(CAR(cell), env, nameval);
     EVAL(CDR(cell), env, contentval);
     RETAIN(nameval); RETAIN(contentval);
-
+    
     if((nameval->t == SYM || nameval->t == STRING) ||
        (contentval->t == SYM || contentval->t == STRING))
     {
-	write_file_text(nameval->sym, contentval->sym);
+        write_file_text(nameval->sym, contentval->sym);
     }
     
     //    RELEASE(contentval); RELEASE(nameval);
@@ -1163,11 +1182,11 @@ LISP_FUNC(while)
     {
         cell_t* body = CDR(cell);
         while(NOT_NIL(body))
-	{
-	    EVAL(CAR(body), env, ret);
-	    body = CDR(body);
-	}
-	EVAL(CAR(cell), env, test);
+        {
+            EVAL(CAR(body), env, ret);
+            body = CDR(body);
+        }
+        EVAL(CAR(cell), env, test);
     }
     return ret;
 }
@@ -1175,75 +1194,75 @@ LISP_FUNC(while)
 void print_cell(cell_t* cell)
 {
     static int depth = 0;
-
+    
     for(int i = 0; i < depth; ++i) printf(" ");
-
+    
     if(IS_NIL(cell))
     {
-	printf("NIL\n");
-	return;
+        printf("NIL\n");
+        return;
     }
     
     switch(cell->t)
     {
     case SYM:
-	printf("S:%s\n", cell->sym);
-	break;
+        printf("S:%s\n", cell->sym);
+        break;
     case LIST:
-      // special case for (NIL . NIL) at the end of the list
-      // just print NIL instead
+        // special case for (NIL . NIL) at the end of the list
+        // just print NIL instead
         if(IS_NIL(CAR(cell)) && IS_NIL(CDR(cell)))
-	{
-	  printf("NIL\n");
-	}
-	else
-	{
-	  printf("L:\n");
-	  ++depth;
-	  print_cell(CAR(cell));
-	  print_cell(CDR(cell));
-	  --depth;
-	}
-	break;
+        {
+            printf("NIL\n");
+        }
+        else
+        {
+            printf("L:\n");
+            ++depth;
+            print_cell(CAR(cell));
+            print_cell(CDR(cell));
+            --depth;
+        }
+        break;
     case VAL:
-	printf("V:%d\n", cell->val);
-	break;
+        printf("V:%d\n", cell->val);
+        break;
     case BOOL:
-	printf("B:\n");
-	break;
+        printf("B:\n");
+        break;
     case NUM:
-	printf("N:\n");
-	break;
+        printf("N:\n");
+        break;
     case FUNL:
-	printf("L:\n");
-	break;
+        printf("L:\n");
+        break;
     case FUNC:
-	printf("F:%p\n", cell->func);
-	break;
+        printf("F:%p\n", cell->func);
+        break;
     case QUOT:
-	printf("Q:\n");
-	++depth;
-	print_cell(cell->inner);
-	--depth;
-	break;
+        printf("Q:\n");
+        ++depth;
+        print_cell(cell->inner);
+        --depth;
+        break;
     case STRING:
-	printf("S:\"%s\"\n", cell->sym);
-	break;
+        printf("S:\"%s\"\n", cell->sym);
+        break;
     case ERROR:
     case ERROR_HANDLED:
-	printf("E:\"%s\"\n", cell->sym);
-	break;
+        printf("E:\"%s\"\n", cell->sym);
+        break;
 #ifdef MEM_PROFILE
     case MEM:
-      printf("M:%p\n", cell->mem);
-      ++depth;
-      print_cell(((cell_t*)cell->mem));
-      --depth;
-      break;
+        printf("M:%p\n", cell->mem);
+        ++depth;
+        print_cell(((cell_t*)cell->mem));
+        --depth;
+        break;
 #endif
     default:
-      printf("UNKNOWN\n");
-      break;
+        printf("UNKNOWN\n");
+        break;
     }
 }
 
@@ -1261,14 +1280,14 @@ LISP_FUNC(eval)
     EVAL(cell, env, list);
     cell = list;
     RETAIN(list);
-    PUSH_BACK(GET("__e"), list)
-
+    PUSH_BACK(GET("__e"), list);
+    
     // then actually eval what requested
     cell_t* res = NIL;
     while( NOT_NIL(cell) )
     {
-	EVAL( cell, env, res );
-	cell = CDR(cell);
+        EVAL( cell, env, res );
+        cell = CDR(cell);
     }
     //RELEASE(list);
     return res;
@@ -1279,33 +1298,33 @@ LISP_FUNC(global)
     cell_t* res = NIL;
     while( NOT_NIL(cell) )
     {
-	EVAL( cell, env, res );
-	cell = CDR(cell);
+        EVAL( cell, env, res );
+        cell = CDR(cell);
     }
-
+    
     env_t g = env;
     while(NOT_NIL(CAR(g))) g = CAR(g);
-
+    
     env = CDR(env);
     while(NOT_NIL(env))
     {
-	cell_t* pair = CAR(env);
+        cell_t* pair = CAR(env);
 #ifdef USE_HASHED_SYMBOLS
-	if(CAR(pair)->t == VAL)
-	{
-	    RETAIN(CDR(pair));
-	    Replace(g, CAR(pair)->val, CDR(pair));
-	}
+        if(CAR(pair)->t == VAL)
+        {
+            RETAIN(CDR(pair));
+            Replace(g, CAR(pair)->val, CDR(pair));
+        }
 #else
-	if(CAR(pair)->t == STRING)
-	{
-	    RETAIN(CDR(pair));
-	    Replace(g, CAR(pair)->sym, CDR(pair));
-	}
+        if(CAR(pair)->t == STRING)
+        {
+            RETAIN(CDR(pair));
+            Replace(g, CAR(pair)->sym, CDR(pair));
+        }
 #endif
-	pair->pair.car = 0;
-	pair->pair.cdr = NIL;
-	env = CDR(env);
+        pair->pair.car = 0;
+        pair->pair.cdr = NIL;
+        env = CDR(env);
     }
     
     return res;
@@ -1315,13 +1334,13 @@ LISP_FUNC(cond)
 {
     while(NOT_NIL(cell))
     {
-	cell_t* test = NIL;
-	EVAL(CAR(CAR(cell)), env, test);
-	if(test == T)
-	{
-	    return Eval(CADR(CAR(cell)), env);
-	}
-	cell = CDR(cell);
+        cell_t* test = NIL;
+        EVAL(CAR(CAR(cell)), env, test);
+        if(test == T)
+        {
+            return Eval(CADR(CAR(cell)), env);
+        }
+        cell = CDR(cell);
     }
     return NIL;
 }
@@ -1334,26 +1353,26 @@ LISP_FUNC(let)
     cell_t* values = CAR(cell);
     while(NOT_NIL(values))
     {
-	cell_t* name = CAR(CAR(values));
-	cell_t* value = NIL;
-	EVAL(CDR(CAR(values)), env, value);
+        cell_t* name = CAR(CAR(values));
+        cell_t* value = NIL;
+        EVAL(CDR(CAR(values)), env, value);
 //	RETAIN(value);
-	if(NOT_NIL(name))
-	{
-	    SET(name->sym, value, scope);
-	}
-	
-	values = CDR(values);
+        if(NOT_NIL(name))
+        {
+            SET(name->sym, value, scope);
+        }
+        
+        values = CDR(values);
     }
     cell_t* res = NIL;
     cell = CDR(cell);
     while(NOT_NIL(cell))
     {
-	EVAL(cell, scope, res);
-	cell = CDR(cell);
+        EVAL(cell, scope, res);
+        cell = CDR(cell);
     }
     //    RELEASE_ENV(scope);
-
+    
     return res;
 }
 
@@ -1365,60 +1384,60 @@ LISP_FUNC(string_equals)
     cell = CDR(cell);
     while(NOT_NIL(cell))
     {
-	if(CAR(cell) == NIL) break;
-	
-	cell_t* val = NIL;
-	EVAL(CAR(cell), env, val);
-	ASSERT_FORMAT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(val, env)->sym);
-	
-	if(val == NIL) return NIL;
-	
-	if(strcmp(val->sym, test->sym) != 0) return F;
-	
-	cell = CDR(cell);
+        if(CAR(cell) == NIL) break;
+        
+        cell_t* val = NIL;
+        EVAL(CAR(cell), env, val);
+        ASSERT_FORMAT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(val, env)->sym);
+        
+        if(val == NIL) return NIL;
+        
+        if(strcmp(val->sym, test->sym) != 0) return F;
+        
+        cell = CDR(cell);
     }
     return T;
 }
 
 LISP_FUNC(substr)
 {
-  cell_t* string = NIL;
-  EVAL(CAR(cell), env, string);
-  cell_t* start = NIL;
-  cell_t* end = NIL;
-  EVAL(CADR(cell), env, start);
-  EVAL(CADDR(cell), env, end);
-
-  ASSERT_FORMAT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", lisp_str(string, env)->sym);
-  ASSERT_FORMAT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", lisp_str(start, env)->sym);
-  ASSERT_FORMAT((end->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", lisp_str(end, env)->sym);
-
-  int cend = strlen(string->sym);
-  if(end != NIL)
-  {
-    if(end->val < 0) cend += end->val;
-    else cend = end->val;
-  }
-  int size = cend - start->val;
-  char* dest = malloc(size+1);
-
-  strncpy(dest, string->sym + start->val, size);
-  dest[size] = 0;
-  
-  cell = CELL(STRING, dest);
-  free(dest);
-  return cell;
+    cell_t* string = NIL;
+    EVAL(CAR(cell), env, string);
+    cell_t* start = NIL;
+    cell_t* end = NIL;
+    EVAL(CADR(cell), env, start);
+    EVAL(CADDR(cell), env, end);
+    
+    ASSERT_FORMAT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", lisp_str(string, env)->sym);
+    ASSERT_FORMAT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", lisp_str(start, env)->sym);
+    ASSERT_FORMAT((end->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", lisp_str(end, env)->sym);
+    
+    int cend = strlen(string->sym);
+    if(end != NIL)
+    {
+        if(end->val < 0) cend += end->val;
+        else cend = end->val;
+    }
+    int size = cend - start->val;
+    char* dest = malloc(size+1);
+    
+    strncpy(dest, string->sym + start->val, size);
+    dest[size] = 0;
+    
+    cell = CELL(STRING, dest);
+    free(dest);
+    return cell;
 }
 
-#define DEFINE_PREDICATE(name, type)					\
+#define DEFINE_PREDICATE(name, type)                            \
     cell_t* name##_predicate(cell_t *cell, env_t env)			\
-    {									\
-	EVAL(cell, env, cell);						\
-	return cell->t == type ? T : F;					\
+    {                                                           \
+        EVAL(cell, env, cell);                                  \
+        return cell->t == type ? T : F;                         \
     }
-#define DECLARE_PREDICATE(name)				\
+#define DECLARE_PREDICATE(name)                         \
     SET(#name"?", CELL(FUNC, name##_predicate),env);
-#define DECLARE_FUNC(sym, name)			\
+#define DECLARE_FUNC(sym, name)                 \
     SET(sym, CELL(FUNC, lisp_##name), env)
 
 DEFINE_PREDICATE(list, LIST);
@@ -1430,8 +1449,7 @@ DEFINE_PREDICATE(error, ERROR);
 
 LISP_FUNC(is_nil)
 {
-    cell = Eval(cell, env);
-    if(cell->t == ERROR) return T;
+    EVAL(cell, env, cell);
     return NOT_NIL(cell) ? F : T;
 }
 
@@ -1445,10 +1463,10 @@ LISP_FUNC(file_exists_p)
 
 LISP_FUNC(newline)
 {
-  UNUSED(cell);
-  UNUSED(env);
-  printf("\n");
-  return NIL;
+    UNUSED(cell);
+    UNUSED(env);
+    printf("\n");
+    return NIL;
 }
 
 LISP_FUNC(system_call)
@@ -1456,11 +1474,11 @@ LISP_FUNC(system_call)
     cell_t* command = NIL;
     EVAL(cell, env, command);
     RETAIN(command);
-
+    
     int success = -1;
     if(command->t == SYM || command->t == STRING)
     {
-	success = system(command->sym);
+        success = system(command->sym);
     }
     //    RELEASE(command);
     return success > 0 ? T : F;
@@ -1468,19 +1486,19 @@ LISP_FUNC(system_call)
 
 LISP_FUNC(raise)
 {
-  cell_t* exception = Eval(cell, env);
-  // raise an exception here if this isn't SYM?
-  return CELL(ERROR, exception->sym);
+    cell_t* exception = Eval(cell, env);
+    // raise an exception here if this isn't SYM?
+    return CELL(ERROR, exception->sym);
 }
 
 LISP_FUNC(raise_continuable)
 {
-  cell_t* exception = Eval(cell, env);
-  cell_t* handler = GET("__exception-handler");
-  cell_t* fn = LIST();
-  PUSH_BACK(fn, handler);
-  PUSH_BACK(fn, exception);
-  return Eval(fn, env);
+    cell_t* exception = Eval(cell, env);
+    cell_t* handler = GET("__exception-handler");
+    cell_t* fn = LIST();
+    PUSH_BACK(fn, handler);
+    PUSH_BACK(fn, exception);
+    return Eval(fn, env);
 }
 
 LISP_FUNC(with_exception_handler)
@@ -1493,12 +1511,12 @@ LISP_FUNC(with_exception_handler)
     if(res->t == ERROR)
     {
         res->t = ERROR_HANDLED; // Flag this as being handled, to not trigger any more error checking
-	cell_t* fn = LIST();
-	PUSH_BACK(fn, handler);
-	PUSH_BACK(fn, res);
-	cell_t* ret = Eval(fn, env);
-	if(res == ret) res->t = ERROR; // re-raise this error
-	return ret;
+        cell_t* fn = LIST();
+        PUSH_BACK(fn, handler);
+        PUSH_BACK(fn, res);
+        cell_t* ret = Eval(fn, env);
+        if(res == ret) res->t = ERROR; // re-raise this error
+        return ret;
     }
     return res;
 }
@@ -1507,13 +1525,55 @@ LISP_FUNC(with_exception_handler)
 int main(int argc, char** argv)
 {
 #ifdef DEBUG
-    if((__debug = (ptrace(PTRACE_TRACEME, 0, 1, 0) == -1 && errno == EPERM)))
+    // allow a child process to trace us
+    prctl(PR_SET_PTRACER, (unsigned long)getpid(), 0, 0, 0);
+    
+    // fork a child to test whether we're being debugged
+    int pid = fork();
+    switch(pid)
+    {
+    case -1:
+        // error, just assume we're not being debugged
+        break;
+    case 0:
+    {
+        // attach back to the parent and try to trace it
+        int ppid = getppid();
+        if( ptrace(PTRACE_ATTACH, ppid, NULL, NULL) == 0)
+        {
+            // if we cannot trace, there must be another
+            // tracer - this is probably a debugger
+            waitpid(ppid, NULL, 0);
+            ptrace(PTRACE_CONT, NULL, NULL);
+
+            ptrace(PTRACE_DETACH, getppid(), NULL, NULL);
+            exit(0);
+        }
+        else
+        {
+            // if we could attach, no debugger was attached
+            exit(1);
+        }
+    }
+    default:
+    {
+        // wait for the child process to complete, and check
+        // whether it was successful
+        int status;
+        waitpid(pid, &status, 0);
+        __debug = WEXITSTATUS(status);
+    }
+    }
+
+    // If we have a debugger attached, then set up a signal handler
+    // so we can correctly handle assertions with the debugger
+    if(__debug)
     {
         struct sigaction sa;
-	sa.sa_handler = sigtrap_handler;
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART | SA_SIGINFO;
-	sigaction(SIGTRAP, &sa, NULL);
+        sa.sa_handler = sigtrap_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART | SA_SIGINFO;
+        sigaction(SIGTRAP, &sa, NULL);
     }
 #endif
 
@@ -1558,8 +1618,8 @@ int main(int argc, char** argv)
     cell_t* args = LIST();
     for(int i = 0; i < argc; ++i)
     {
-	cell_t* arg = CELL(STRING, argv[i]);
-	PUSH_BACK(args, arg);
+        cell_t* arg = CELL(STRING, argv[i]);
+        PUSH_BACK(args, arg);
     }
     SET("args", args, env);
     SET("__e", LIST(), env);
@@ -1573,28 +1633,28 @@ int main(int argc, char** argv)
     SET("t", T, env);
     SET("f", F, env);
     SET("nil", NIL, env);
-
+    
     ast_t ast = Parse("(eval (parse (read-file-text \"stage0.yl\")))");
     //ast_t ast = Parse("(eval (parse (read-file-text \"hello.yl\")))");
     cell_t* cell = (cell_t*)ast;
-
+    
     // set the ast to be available in lisp in case we want it
     SET("ast", ast, env);
-
+    
     cell_t* res = NIL;
     while( NOT_NIL(cell) )
     {
-	res = Eval( cell, env );
-	if(res->t == ERROR)
-	{
-	    break;
-	}
-	cell = CDR(cell);
+        res = Eval( cell, env );
+        if(res->t == ERROR)
+        {
+            break;
+        }
+        cell = CDR(cell);
     }
     if(res->t == ERROR)
     {
-	printf("ERROR: %s\n", res->sym);
-	RELEASE(res);
+        printf("ERROR: %s\n", res->sym);
+        RELEASE(res);
     }
     
     Free(&COMMENT);
