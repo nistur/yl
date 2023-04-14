@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
-#define MEM_PROFILE
+//#define MEM_PROFILE
 //#define USE_HASHED_SYMBOLS
 #define DEBUG
 
@@ -384,7 +384,7 @@ void free_yl(void* ptr)
         free(cdr);
     }
 #endif
-    //free(ptr);
+    free(ptr);
 }
 
 //----------------------------------------------------------------------------//
@@ -595,7 +595,7 @@ const char* ParseToken(cell_t** cell, const char* expr)
         {
             cell_t* datum = NIL;
             pTokEnd = ParseToken(&datum, pTokEnd+1);
-            //	  RELEASE(datum); // this one has been commented out
+	    RELEASE(datum); // this one has been commented out
             *cell = COMMENT;
             return pTokEnd;
         }
@@ -730,13 +730,15 @@ cell_t* Eval(cell_t* cell, env_t env)
                 fn = fn->pair.cdr;
                 while(NOT_NIL(CAR(fn)))
                 {
+		    RELEASE(res);
                     CHECK(fn);
                     CHECK(CAR(fn));
                     EVAL(CAR(fn), scope, res);
+		    RETAIN(res);
                     fn = CDR(fn);
                 }
                 
-                //		RELEASE_ENV(scope);
+		RELEASE_ENV(scope);
                 return res;
             }
         }
@@ -831,7 +833,7 @@ cell_t* Replace(env_t env, int name, cell_t* val)
                 if(CAR(entry)->t == STRING && hash(CAR(entry)->sym) == hash(name))
 #endif
                 {
-                    //		RELEASE(entry->pair.cdr);
+		    RELEASE(entry->pair.cdr);
                     entry->pair.cdr = val;
                     return val;
                 }
@@ -852,13 +854,13 @@ cell_t* Replace(env_t env, int name, cell_t* val)
 LISP_FUNC(parse)
 {
     EVAL(cell, env, cell);
-    //    RETAIN(cell);
+    RETAIN(cell);
     ast_t ast = LIST();
     if(cell->t == STRING)
     {
         ParseList(ast, cell->sym);
     }
-    //    RELEASE(cell);
+    RELEASE(cell);
     return ast;
 }
 
@@ -866,12 +868,14 @@ LISP_FUNC(str)
 {
     cell_t* val = NIL;
     EVAL(cell, env, val);
+    RETAIN(val);
     char* buff = NULL;
     cell_t* res = NIL;
     switch(val->t)
     {
     case SYM:
         res = CELL(STRING, val->sym);
+	RELEASE(val);
         break;
     case ERROR:
     case ERROR_HANDLED:
@@ -887,10 +891,12 @@ LISP_FUNC(str)
             sprintf(buff, "NIL");
         res = CELL(STRING, buff);
         free(buff);
+	RELEASE(val);
         break;
     }
     case LIST:
     {
+	cell_t* root = val;
         buff = sb_add(buff, 2);
         sprintf(buff, "(");
         int p = 1;
@@ -901,7 +907,7 @@ LISP_FUNC(str)
             char* pbuff = sb_add(buff, l+1);
             sprintf(pbuff-1, "%s ", strcar->sym);
             p += l+1;
-            //	    RELEASE(strcar);
+	    RELEASE(strcar);
             val = CDR(val);
         }
         
@@ -926,6 +932,7 @@ LISP_FUNC(str)
         res = CELL(STRING, strbuf);
         sb_free(buff);
         free(strbuf);
+	RELEASE(root);
         break;
     }
     case BOOL:
@@ -1062,7 +1069,7 @@ LISP_FUNC(cons)
     EVAL(CDR(cell), env, lst->pair.cdr);
     RETAIN(CAR(lst));
     RETAIN(CDR(lst));
-    return (cell_t*)lst;
+    return lst;
 }
 
 
@@ -1112,9 +1119,14 @@ LISP_FUNC(less)
     cell_t* val2 = NIL;
     EVAL(CAR(cell), env, val1);
     EVAL(CADR(cell), env, val2);
+    RETAIN(val1);
+    RETAIN(val2);
     
     int v1 = val1->t == SYM || val1->t == STRING ? atoi(((cell_t*)val1)->sym) : ((cell_t*)val1)->val;
     int v2 = val2->t == SYM || val2->t == STRING ? atoi(((cell_t*)val2)->sym) : ((cell_t*)val2)->val;
+
+    RELEASE(val1);
+    RELEASE(val2);
     
     return v1 < v2 ? T : F;
 }
@@ -1122,18 +1134,23 @@ LISP_FUNC(less)
 LISP_FUNC(not)
 {
     EVAL(cell, env, cell);
-    
-    return (cell == F || cell == NIL) ? T : F;
+    RETAIN(cell);
+    cell_t* ret = (cell == F || cell == NIL) ? T : F;
+    RELEASE(cell);
+    return ret;
 }
 
 LISP_FUNC(if)
 {    
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
+    RETAIN(test);
     if( test && test != NIL && test != F && ((cell_t*)test)->val != 0)
     {
+	RELEASE(test);
         return Eval(CADR(cell), env);
     }
+    RELEASE(test);
     return Eval(CADDR(cell), env);
 }
 
@@ -1141,6 +1158,7 @@ LISP_FUNC(read_file_text)
 {
     cell_t* nameval = NIL;
     EVAL(cell, env, nameval);
+    RETAIN(nameval);
     char* namestr = ((cell_t*)nameval)->sym;
     
     char* contentstr = read_file_text(namestr);
@@ -1151,6 +1169,7 @@ LISP_FUNC(read_file_text)
     cell_t* res = CELL(STRING, "");
     free(res->sym);
     res->sym = contentstr;
+    RELEASE(nameval);
     return res;
 }
 
@@ -1168,7 +1187,7 @@ LISP_FUNC(write_file_text)
         write_file_text(nameval->sym, contentval->sym);
     }
     
-    //    RELEASE(contentval); RELEASE(nameval);
+    RELEASE(contentval); RELEASE(nameval);
     return NIL;
 }
 
@@ -1176,6 +1195,7 @@ LISP_FUNC(while)
 {
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
+    RETAIN(test);
     cell_t* ret = NIL;
     
     while( NOT_NIL(test) && test != F && ((cell_t*)test)->val != 0)
@@ -1183,10 +1203,14 @@ LISP_FUNC(while)
         cell_t* body = CDR(cell);
         while(NOT_NIL(body))
         {
+	    RELEASE(ret);
             EVAL(CAR(body), env, ret);
+	    RETAIN(ret);
             body = CDR(body);
         }
+	RELEASE(test);
         EVAL(CAR(cell), env, test);
+	RETAIN(test);
     }
     return ret;
 }
@@ -1269,7 +1293,9 @@ void print_cell(cell_t* cell)
 LISP_FUNC(print_cell)
 {
     EVAL(cell, env, cell);
+    RETAIN(cell);
     print_cell(cell);
+    RELEASE(cell);
     return NIL;
 }
 
@@ -1286,7 +1312,9 @@ LISP_FUNC(eval)
     cell_t* res = NIL;
     while( NOT_NIL(cell) )
     {
+	RELEASE(res);
         EVAL( cell, env, res );
+	RETAIN(res);
         cell = CDR(cell);
     }
     //RELEASE(list);
@@ -1336,11 +1364,14 @@ LISP_FUNC(cond)
     {
         cell_t* test = NIL;
         EVAL(CAR(CAR(cell)), env, test);
+	RETAIN(test);
         if(test == T)
         {
+	    RELEASE(test);
             return Eval(CADR(CAR(cell)), env);
         }
         cell = CDR(cell);
+	RELEASE(test);
     }
     return NIL;
 }
@@ -1356,7 +1387,6 @@ LISP_FUNC(let)
         cell_t* name = CAR(CAR(values));
         cell_t* value = NIL;
         EVAL(CDR(CAR(values)), env, value);
-//	RETAIN(value);
         if(NOT_NIL(name))
         {
             SET(name->sym, value, scope);
@@ -1368,10 +1398,12 @@ LISP_FUNC(let)
     cell = CDR(cell);
     while(NOT_NIL(cell))
     {
+	RELEASE(res);
         EVAL(cell, scope, res);
+	RETAIN(res);
         cell = CDR(cell);
     }
-    //    RELEASE_ENV(scope);
+    RELEASE_ENV(scope);
     
     return res;
 }
@@ -1380,6 +1412,7 @@ LISP_FUNC(string_equals)
 {
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
+    RETAIN(test);
     ASSERT_FORMAT((test->t == STRING || test->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(test, env)->sym);
     cell = CDR(cell);
     while(NOT_NIL(cell))
@@ -1388,14 +1421,25 @@ LISP_FUNC(string_equals)
         
         cell_t* val = NIL;
         EVAL(CAR(cell), env, val);
+	RETAIN(val);
         ASSERT_FORMAT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(val, env)->sym);
         
-        if(val == NIL) return NIL;
+        if(val == NIL)
+	{
+	    RELEASE(val); RELEASE(test);
+	    return NIL;
+	}
         
-        if(strcmp(val->sym, test->sym) != 0) return F;
+        if(strcmp(val->sym, test->sym) != 0)
+	{
+	    RELEASE(val); RELEASE(test);
+	    return F;
+	}
         
         cell = CDR(cell);
+	RELEASE(val);
     }
+    RELEASE(test);
     return T;
 }
 
@@ -1403,10 +1447,13 @@ LISP_FUNC(substr)
 {
     cell_t* string = NIL;
     EVAL(CAR(cell), env, string);
+    RETAIN(string);
     cell_t* start = NIL;
     cell_t* end = NIL;
     EVAL(CADR(cell), env, start);
     EVAL(CADDR(cell), env, end);
+    RETAIN(start);
+    RETAIN(end);
     
     ASSERT_FORMAT((string->t == STRING || string->t == SYM), "\"substring\": invalid type, expected String: %s", lisp_str(string, env)->sym);
     ASSERT_FORMAT((start->t == VAL), "\"substring\": invalid type, expected String-Cursor: %s", lisp_str(start, env)->sym);
@@ -1423,17 +1470,23 @@ LISP_FUNC(substr)
     
     strncpy(dest, string->sym + start->val, size);
     dest[size] = 0;
+    RELEASE(start);
+    RELEASE(end);
+    RELEASE(string);
     
     cell = CELL(STRING, dest);
     free(dest);
     return cell;
 }
 
-#define DEFINE_PREDICATE(name, type)                            \
+#define DEFINE_PREDICATE(name, type)					\
     cell_t* name##_predicate(cell_t *cell, env_t env)			\
-    {                                                           \
-        EVAL(cell, env, cell);                                  \
-        return cell->t == type ? T : F;                         \
+    {									\
+        EVAL(cell, env, cell);						\
+	RETAIN(cell);							\
+        cell_t* ret = cell->t == type ? T : F;				\
+	RELEASE(cell);							\
+	return ret;							\
     }
 #define DECLARE_PREDICATE(name)                         \
     SET(#name"?", CELL(FUNC, name##_predicate),env);
@@ -1450,14 +1503,19 @@ DEFINE_PREDICATE(error, ERROR);
 LISP_FUNC(is_nil)
 {
     EVAL(cell, env, cell);
-    return NOT_NIL(cell) ? F : T;
+    RETAIN(cell);
+    cell_t* ret = NOT_NIL(cell) ? F : T;
+    RELEASE(cell);
+    return ret;
 }
 
 LISP_FUNC(file_exists_p)
 {
     cell = lisp_str(cell, env);
+    RETAIN(cell);
     struct stat st;
     int s = stat(cell->sym, &st);
+    RELEASE(cell);
     return s == 0 ? T : F;
 }
 
@@ -1480,7 +1538,7 @@ LISP_FUNC(system_call)
     {
         success = system(command->sym);
     }
-    //    RELEASE(command);
+    RELEASE(command);
     return success > 0 ? T : F;
 }
 
@@ -1516,6 +1574,7 @@ LISP_FUNC(with_exception_handler)
         PUSH_BACK(fn, res);
         cell_t* ret = Eval(fn, env);
         if(res == ret) res->t = ERROR; // re-raise this error
+	RELEASE(res);
         return ret;
     }
     return res;
@@ -1659,5 +1718,8 @@ int main(int argc, char** argv)
     
     Free(&COMMENT);
     Free(&env);
+#ifdef MEM_PROFILE
+    printf("%d/%d not freed, %d released, %d bytes leaked\n", ___i, ___t, ___r, ___i * sizeof(cell_t));
+#endif
     //print_cell(__mem);
 }
