@@ -1413,6 +1413,7 @@ LISP_FUNC(string_equals)
 {
     cell_t* test = NIL;
     EVAL(CAR(cell), env, test);
+    if(test->t == QUOT) test = test->inner;
     RETAIN(test);
     ASSERT_FORMAT((test->t == STRING || test->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(test, env)->sym);
     cell = CDR(cell);
@@ -1422,6 +1423,7 @@ LISP_FUNC(string_equals)
         
         cell_t* val = NIL;
         EVAL(CAR(cell), env, val);
+	if(val->t == QUOT) val = val->inner;
 	RETAIN(val);
         ASSERT_FORMAT((val->t == STRING || val->t == SYM), "\"string=?\": invalid type, expected String: %s", lisp_str(val, env)->sym);
         
