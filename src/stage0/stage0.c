@@ -738,7 +738,7 @@ cell_t* Eval(cell_t* cell, env_t env)
                     fn = CDR(fn);
                 }
                 
-		RELEASE_ENV(scope);
+		//RELEASE_ENV(scope);
                 return res;
             }
         }
@@ -897,6 +897,7 @@ LISP_FUNC(str)
     case LIST:
     {
 	cell_t* root = val;
+	RETAIN(root);
         buff = sb_add(buff, 2);
         sprintf(buff, "(");
         int p = 1;
@@ -907,7 +908,7 @@ LISP_FUNC(str)
             char* pbuff = sb_add(buff, l+1);
             sprintf(pbuff-1, "%s ", strcar->sym);
             p += l+1;
-	    RELEASE(strcar);
+	    //RELEASE(strcar);
             val = CDR(val);
         }
         
@@ -1539,7 +1540,7 @@ LISP_FUNC(system_call)
         success = system(command->sym);
     }
     RELEASE(command);
-    return success > 0 ? T : F;
+    return success >= 0 ? T : F;
 }
 
 LISP_FUNC(raise)

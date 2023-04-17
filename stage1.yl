@@ -58,7 +58,7 @@
 ;;    (print-cell ast)))
 
 
-(define c-file (concat
+(define c-code (concat
 "#include <stdio.h>
 int main(int argc, char** argv)
 {
@@ -66,7 +66,9 @@ int main(int argc, char** argv)
 }
 "))
 
-(write-file-text "obj/stage1_generated.c" c-file)
-(system "gcc -o out/stage1 obj/stage1_generated.c")
-
-(display "Compilation complete")(newline)
+(let ((c-file "obj/stage1_generated.c")
+      (out-file "out/stage1"))
+  (write-file-text c-file c-code)
+  (display (concat "gcc -o " out-file " " c-file))(newline)
+  (if (system (concat "gcc -o " out-file " " c-file))
+      (display "Compilation complete")(newline)))

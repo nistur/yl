@@ -51,10 +51,7 @@
 
 (define command-line (lambda () args))
 
-(define command-line-pop (lambda ()
-			    (let ((prev-command-line command-line))
-			      (set! 'command-line (lambda ()
-						    (cdr (prev-command-line)))))))
+(define command-line-pop (lambda () (set! 'args (cdr args))))
 
 (define else t)
 
