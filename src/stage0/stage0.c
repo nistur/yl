@@ -1580,6 +1580,20 @@ LISP_FUNC(with_exception_handler)
     return res;
 }
 
+LISP_FUNC(begin)
+{
+    cell_t* car = CAR(cell);
+    cell_t* cdr = CDR(cell);
+    cell_t* res = NIL;
+    while(NOT_NIL(car))
+    {
+        res = Eval(car, env);
+        car = CAR(cdr);
+        cdr = CDR(cdr);
+    }
+    return res;
+}
+
 // main entry point
 int main(int argc, char** argv)
 {
@@ -1668,6 +1682,7 @@ int main(int argc, char** argv)
     DECLARE_FUNC("raise", raise);
     DECLARE_FUNC("raise-continuable", raise_continuable);
     DECLARE_FUNC("with-exception-handler", with_exception_handler);
+    DECLARE_FUNC("begin", begin);
     DECLARE_PREDICATE(list);
     DECLARE_PREDICATE(symbol);
     DECLARE_PREDICATE(string);
